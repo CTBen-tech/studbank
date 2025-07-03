@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'otp_page.dart';
 
 class SignUpPage extends StatelessWidget {
   const SignUpPage({super.key});
@@ -88,6 +89,11 @@ class SignUpPage extends StatelessWidget {
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const OtpPage()),
+                      );
                       // Handle submission here
                       print('Submission button pressed');
                     },
