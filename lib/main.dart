@@ -111,6 +111,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const OtpPage()),
+                      );
                       // Handle submission here
                       print('Submission button pressed');
                     },

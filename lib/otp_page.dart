@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'home_page.dart';
 
 class OtpPage extends StatelessWidget {
   const OtpPage({super.key});
@@ -38,6 +39,9 @@ class OtpPage extends StatelessWidget {
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: () {
+                Navigator.push(
+                  context, 
+                  MaterialPageRoute(builder: (context) => const HomePage()),)
                 // Handle OTP verification
               },
               child: const Text('Verify OTP'),
