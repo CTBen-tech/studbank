@@ -40,8 +40,9 @@ class OtpPage extends StatelessWidget {
             ElevatedButton(
               onPressed: () {
                 Navigator.push(
-                  context, 
-                  MaterialPageRoute(builder: (context) => const HomePage()),)
+                  context,
+                  MaterialPageRoute(builder: (context) => const HomePage()),
+                );
                 // Handle OTP verification
               },
               child: const Text('Verify OTP'),
