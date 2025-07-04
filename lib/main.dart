@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'sign_up_page.dart';
+import 'otp_page.dart';
 
 void main() {
   runApp(const MyApp());

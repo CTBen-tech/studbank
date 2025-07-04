@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'main.dart';
 import 'otp_page.dart';
 
 class SignUpPage extends StatelessWidget {
@@ -103,18 +104,18 @@ class SignUpPage extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text("Don't have an account? "),
+                      const Text("Already have an account? "),
                       GestureDetector(
                         onTap: () {
                           // Navigate to sign up page
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (context) => const SignUpPage()),
+                                builder: (context) => const MyApp()),
                           );
                         },
                         child: const Text(
-                          'Sign up here',
+                          'Sign in here',
                           style: TextStyle(
                             color: Colors.blue,
                             decoration: TextDecoration.underline,
