@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "74664026083",
+    "project_id": "studbank",
+    "storage_bucket": "studbank.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:74664026083:android:350a21fa532e56af3b4ad6",
+        "android_client_info": {
+          "package_name": "com.example.studbank"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCH7Qwj9bh6roYVgAcweJFwAYte7LCLTjs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,39 @@
+{
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "studbank",
+          "configurations": {
+            "android": "1:74664026083:android:350a21fa532e56af3b4ad6",
+            "ios": "1:74664026083:ios:d5c779b7efb0534a3b4ad6",
+            "macos": "1:74664026083:ios:d5c779b7efb0534a3b4ad6",
+            "web": "1:74664026083:web:64333082161d56423b4ad6",
+            "windows": "1:74664026083:web:4c64739e6321a6523b4ad6"
+          }
+        }
+      },
+      "android": {
+        "default": {
+          "projectId": "studbank",
+          "appId": "1:74664026083:android:350a21fa532e56af3b4ad6",
+          "fileOutput": "android/app/google-services.json"
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
