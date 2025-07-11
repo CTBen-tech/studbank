@@ -109,12 +109,25 @@ class SignUpPageState extends State<SignUpPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('StudWallet Sign Up')),
+      appBar: AppBar(title: const Text('Safe budget Sign Up')),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
+              Text(
+                'Welcome to the safe budget app',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  //color: Colors.blue,
+                ),
+              ),
+               Text(
+                'Sign in to continue managing your finaces.',
+                style: TextStyle(fontSize: 16),
+              ),
+              SizedBox(height: 10),
               TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(
