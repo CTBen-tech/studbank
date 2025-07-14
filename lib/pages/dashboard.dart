@@ -76,10 +76,17 @@ class _DashboardPageState extends State<DashboardPage> {
           child: Column(
             children: [
               const SizedBox(height: 32),
-              Text(
-                '${_getGreeting()}, ${user?.displayName ?? 'Guest'}!',
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
+              Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${_getGreeting()}, ${user?.displayName ?? 'Guest'}!',
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+
               const SizedBox(height: 16),
 
               // 🔢 Real-time balance from Firestore
@@ -127,10 +134,17 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
 
               const SizedBox(height: 24),
-              const Text(
-                'Quick Actions',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Quick Actions',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
+
               const SizedBox(height: 12),
 
               // 🚀 Action cards
