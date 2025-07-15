@@ -5,15 +5,24 @@ class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
   @override
-  LoginPageState createState() => LoginPageState(); // Fixed: Made state class public
+  LoginPageState createState() => LoginPageState();
 }
 
 class LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _auth = FirebaseAuth.instance; // Correct instantiation
+  final _auth = FirebaseAuth.instance;
   bool _isLoading = false;
   bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Sign out any existing user to force re-authentication
+    _auth.signOut().catchError((e) {
+      print('Sign-out error: $e');
+    });
+  }
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -49,26 +58,38 @@ class LoginPageState extends State<LoginPage> {
 
     try {
       await _auth.signInWithEmailAndPassword(
-
-    email: email,
-
-    password: password,
-
+        email: email,
+        password: password,
       );
-      //if (mounted && userCredential.user != null) {
-      // Navigator.pushReplacementNamed(context, '/dashboard');
-     // }
+      if (mounted) {
+        print('Login successful, navigating to /dashboard');
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      }
     } on FirebaseAuthException catch (e) {
+      print('FirebaseAuthException: ${e.code}, ${e.message}');
       String errorMessage = 'Login failed';
       switch (e.code) {
         case 'user-not-found':
           errorMessage = 'No user found with this email.';
+          break;
         case 'wrong-password':
           errorMessage = 'Incorrect password.';
+          break;
         case 'invalid-email':
           errorMessage = 'Invalid email format.';
+          break;
         case 'user-disabled':
           errorMessage = 'This account has been disabled.';
+          break;
+        case 'invalid-credential':
+          errorMessage = 'Invalid email or password.';
+          break;
+        case 'too-many-requests':
+          errorMessage = 'Too many attempts. Try again later.';
+          break;
+        case 'network-request-failed':
+          errorMessage = 'Network error. Check your connection.';
+          break;
         default:
           errorMessage = 'Login failed: ${e.message}';
       }
@@ -78,6 +99,7 @@ class LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
+      print('Unexpected error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('An unexpected error occurred: $e')),
@@ -148,7 +170,7 @@ class LoginPageState extends State<LoginPage> {
                   : ElevatedButton(
                       onPressed: _login,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue, 
+                        backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                         minimumSize: const Size(double.infinity, 50),
                         shape: RoundedRectangleBorder(

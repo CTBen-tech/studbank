@@ -16,17 +16,18 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    _resetTimer(); // Start inactivity timer on page load
+    _resetTimer();
   }
 
-  // 🔐 Auto logout after 5 minutes of inactivity
   void _resetTimer() {
     _inactivityTimer?.cancel();
     _inactivityTimer = Timer(const Duration(minutes: 5), _handleInactivity);
   }
 
   void _handleInactivity() {
-    FirebaseAuth.instance.signOut();
+    FirebaseAuth.instance.signOut().catchError((e) {
+      print('Sign-out error: $e');
+    });
     if (mounted) {
       Navigator.pushReplacementNamed(context, '/login');
     }
@@ -46,22 +47,95 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _signOut() async {
-    await FirebaseAuth.instance.signOut();
+    await FirebaseAuth.instance.signOut().catchError((e) {
+      print('Sign-out error: $e');
+    });
     if (mounted) {
       Navigator.pushReplacementNamed(context, '/login');
     }
+  }
+
+  // Show modal bottom sheet for actions
+  void _showActionSheet(BuildContext context, String title, Widget content) {
+    _resetTimer(); // Reset inactivity timer when opening sheet
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // Allows custom height
+      backgroundColor: Colors.transparent, // Transparent to show faded background
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.5, // Covers ~50% of screen
+        minChildSize: 0.3, // Minimum size when dragged down
+        maxChildSize: 0.6, // Maximum size when dragged up
+        builder: (context, scrollController) => Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8F6F2), // Match Dashboard background
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header with title and close button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.black),
+                      onPressed: () {
+                        _resetTimer(); // Reset timer on close
+                        Navigator.pop(context);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // Scrollable content
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: content,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).whenComplete(() {
+      _resetTimer(); // Reset timer after sheet closes
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
+    if (user == null) {
+      print('No authenticated user found');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacementNamed(context, '/login');
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return GestureDetector(
       onTap: _resetTimer,
       onPanDown: (_) => _resetTimer(),
       behavior: HitTestBehavior.translucent,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF8F6F2), // Luxury soft white
+        backgroundColor: const Color(0xFFF8F6F2),
         appBar: AppBar(
           title: const Text('Safe Budget Dashboard'),
           actions: [
@@ -77,31 +151,51 @@ class _DashboardPageState extends State<DashboardPage> {
             children: [
               const SizedBox(height: 32),
               Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${_getGreeting()}, ${user?.displayName ?? 'Guest'}!',
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${_getGreeting()}, ${user.displayName ?? 'Guest'}!',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                 ),
-
+              ),
               const SizedBox(height: 16),
-
-              // 🔢 Real-time balance from Firestore
               StreamBuilder<DocumentSnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('users')
-                    .doc(user?.uid)
+                    .doc(user.uid)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const CircularProgressIndicator();
+                  Widget balanceWidget;
+                  if (snapshot.hasError) {
+                    print('Firestore error: ${snapshot.error}');
+                    balanceWidget = const Text(
+                      'Error loading balance',
+                      style: TextStyle(color: Colors.white, fontSize: 18),
+                    );
+                  } else if (!snapshot.hasData || !snapshot.data!.exists || snapshot.data!.data() == null) {
+                    print('Firestore: No data for user ${user.uid}');
+                    balanceWidget = const Text(
+                      'Balance Not Found',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    );
+                  } else {
+                    final data = snapshot.data!.data() as Map<String, dynamic>;
+                    final balance = data['balance']?.toDouble() ?? 0.0;
+                    balanceWidget = Text(
+                      '\$${balance.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    );
                   }
-
-                  final data = snapshot.data!.data() as Map<String, dynamic>;
-                  final balance = data['balance'] ?? 0.0;
 
                   return Container(
                     width: double.infinity,
@@ -119,20 +213,12 @@ class _DashboardPageState extends State<DashboardPage> {
                           style: TextStyle(color: Colors.white, fontSize: 18),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          '\$${balance.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        balanceWidget,
                       ],
                     ),
                   );
                 },
               ),
-
               const SizedBox(height: 24),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12),
@@ -144,10 +230,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 12),
-
-              // 🚀 Action cards
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -157,7 +240,36 @@ class _DashboardPageState extends State<DashboardPage> {
                         label: 'Add Funds',
                         icon: Icons.add_circle_outline,
                         onTap: () {
-                          // TODO: Navigate to Add Funds
+                          _showActionSheet(
+                            context,
+                            'Add Funds',
+                            Column(
+                              children: [
+                                TextField(
+                                  decoration: InputDecoration(
+                                    labelText: 'Amount',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: const Icon(Icons.attach_money),
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    // TODO: Implement add funds logic
+                                    _resetTimer();
+                                    Navigator.pop(context);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(double.infinity, 50),
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: const Text('Submit'),
+                                ),
+                              ],
+                            ),
+                          );
                         },
                       ),
                     ),
@@ -167,7 +279,36 @@ class _DashboardPageState extends State<DashboardPage> {
                         label: 'Withdraw',
                         icon: Icons.remove_circle_outline,
                         onTap: () {
-                          // TODO: Navigate to Withdraw
+                          _showActionSheet(
+                            context,
+                            'Withdraw Funds',
+                            Column(
+                              children: [
+                                TextField(
+                                  decoration: InputDecoration(
+                                    labelText: 'Amount',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: const Icon(Icons.attach_money),
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    // TODO: Implement withdraw logic
+                                    _resetTimer();
+                                    Navigator.pop(context);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(double.infinity, 50),
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: const Text('Submit'),
+                                ),
+                              ],
+                            ),
+                          );
                         },
                       ),
                     ),
@@ -177,7 +318,32 @@ class _DashboardPageState extends State<DashboardPage> {
                         label: 'View Goals',
                         icon: Icons.flag_outlined,
                         onTap: () {
-                          // TODO: Navigate to Goals
+                          _showActionSheet(
+                            context,
+                            'Financial Goals',
+                            Column(
+                              children: [
+                                const Text(
+                                  'No goals set yet.',
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    // TODO: Implement add goal logic
+                                    _resetTimer();
+                                    Navigator.pop(context);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(double.infinity, 50),
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: const Text('Add Goal'),
+                                ),
+                              ],
+                            ),
+                          );
                         },
                       ),
                     ),
@@ -192,7 +358,6 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-// 🎨 Stylized hoverable card
 class HoverCard extends StatefulWidget {
   final String label;
   final IconData icon;
