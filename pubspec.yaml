@@ -35,6 +35,8 @@ dependencies:
   cloud_firestore: ^5.4.4
   firebase_storage: ^12.3.2
   flutter_secure_storage: ^9.2.2
+  http: ^0.13.4
+  uuid: ^3.0.6
 
   fl_chart: ^0.68.0
   english_words: ^4.0.0

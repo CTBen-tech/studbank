@@ -71,25 +71,18 @@ class LoginPageState extends State<LoginPage> {
       switch (e.code) {
         case 'user-not-found':
           errorMessage = 'No user found with this email.';
-          break;
         case 'wrong-password':
           errorMessage = 'Incorrect password.';
-          break;
         case 'invalid-email':
           errorMessage = 'Invalid email format.';
-          break;
         case 'user-disabled':
           errorMessage = 'This account has been disabled.';
-          break;
         case 'invalid-credential':
           errorMessage = 'Invalid email or password.';
-          break;
         case 'too-many-requests':
           errorMessage = 'Too many attempts. Try again later.';
-          break;
         case 'network-request-failed':
           errorMessage = 'Network error. Check your connection.';
-          break;
         default:
           errorMessage = 'Login failed: ${e.message}';
       }
