@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/momo_service.dart'; // Imports MomoService for MoMo API interactions
-import '../api_constants.dart'; // Imports ApiConstants for MoMo API credentials
+import '../services/momo_service.dart';
+import '../api_constants.dart';
 
 // DashboardPage is a StatefulWidget that displays the main dashboard for the Safe Budget app
 class DashboardPage extends StatefulWidget {
@@ -13,61 +13,54 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-// State class for DashboardPage, managing UI state and logic
 class _DashboardPageState extends State<DashboardPage> {
-  Timer? _inactivityTimer; // Timer for auto sign-out after 5 minutes of inactivity
-  // Controllers for user input in add/withdraw funds forms
+  Timer? _inactivityTimer;
   final _amountController = TextEditingController();
   final _phoneController = TextEditingController();
-  // Flag to show loading indicator during API calls
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _resetTimer(); // Initialize inactivity timer
-    // Reference ApiConstants to avoid unused_import warning (logs MoMo API base URL)
+    _resetTimer();
     print('MoMo API Base URL: ${ApiConstants.baseUrl}');
-    // NEW: Initialize user document in Firestore
     _initializeUser();
   }
 
-  // NEW: Initialize user document with default balance
   void _initializeUser() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
-      final docSnapshot = await userRef.get();
-      if (!docSnapshot.exists) {
-        // Create user document with default balance
-        await userRef.set({
-          'uid': user.uid,
-          'email': user.email,
-          'displayName': user.displayName ?? 'Guest',
-          'balance': 0.0,
-          'createdAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      } else if (docSnapshot.data()?['balance'] == null) {
-        // Ensure balance field exists
-        await userRef.set({
-          'balance': 0.0,
-        }, SetOptions(merge: true));
+      try {
+        final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+        final docSnapshot = await userRef.get();
+        if (!docSnapshot.exists) {
+          await userRef.set({
+            'uid': user.uid,
+            'email': user.email,
+            'displayName': user.displayName ?? 'Guest',
+            'balance': 0.0,
+            'createdAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } else if (docSnapshot.data()?['balance'] == null) {
+          await userRef.set({
+            'balance': 0.0,
+          }, SetOptions(merge: true));
+        }
+      } catch (e) {
+        print('Error initializing user: $e');
       }
     }
   }
 
-  // Resets the inactivity timer to 5 minutes
   void _resetTimer() {
-    _inactivityTimer?.cancel(); // Cancel existing timer
+    _inactivityTimer?.cancel();
     _inactivityTimer = Timer(const Duration(minutes: 5), _handleInactivity);
   }
 
-  // Handles user inactivity by signing out and navigating to login screen
   void _handleInactivity() {
     FirebaseAuth.instance.signOut().catchError((e) {
-      print('Sign-out error: $e'); // Log any sign-out errors
+      print('Sign-out error: $e');
     });
-    // Fix: Check if widget is mounted before using Navigator
     if (mounted) {
       Navigator.pushReplacementNamed(context, '/login');
     }
@@ -75,13 +68,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   void dispose() {
-    _inactivityTimer?.cancel(); // Cancel timer to prevent memory leaks
-    _amountController.dispose(); // Dispose amount input controller
-    _phoneController.dispose(); // Dispose phone number input controller
+    _inactivityTimer?.cancel();
+    _amountController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
-  // Returns a greeting based on the time of day
   String _getGreeting() {
     final hour = DateTime.now().hour;
     if (hour < 12) return 'Good morning';
@@ -89,18 +81,15 @@ class _DashboardPageState extends State<DashboardPage> {
     return 'Good evening';
   }
 
-  // Signs out the user and navigates to the login screen
   void _signOut() async {
     await FirebaseAuth.instance.signOut().catchError((e) {
-      print('Sign-out error: $e'); // Log any sign-out errors
+      print('Sign-out error: $e');
     });
-    // Fix: Check if widget is mounted before using Navigator
     if (mounted) {
       Navigator.pushReplacementNamed(context, '/login');
     }
   }
 
-  // Shows a custom error dialog with a gentle animation and unique design
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
@@ -134,19 +123,14 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // Handles adding funds via MoMo API and updates Firestore balance
   void _addFunds(String amount, String phoneNumber) async {
-    // Validate amount input
     if (amount.isEmpty || double.tryParse(amount) == null || double.parse(amount) <= 0) {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('Please enter a valid amount greater than 0');
       }
       return;
     }
-    // Validate phone number format
     if (!phoneNumber.startsWith('+') || phoneNumber.length < 10) {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('Please enter a valid phone number (e.g., +256123456789)');
       }
@@ -154,27 +138,24 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     setState(() {
-      _isLoading = true; // Show loading indicator
+      _isLoading = true;
     });
 
     final user = FirebaseAuth.instance.currentUser;
-    // Check if user is authenticated
     if (user == null) {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('User not authenticated');
       }
       setState(() {
-        _isLoading = false; // Hide loading indicator
+        _isLoading = false;
       });
       return;
     }
 
     final externalId = DateTime.now().millisecondsSinceEpoch.toString();
-    // Call MoMo API to initiate payment request
     final success = await MomoService.requestToPay(
       amount: amount,
-      currency: 'UGX', // Changed to UGX for Uganda
+      currency: 'UGX',
       externalId: externalId,
       payerMobile: phoneNumber,
       payerMessage: 'Add funds to Safe Budget',
@@ -182,16 +163,14 @@ class _DashboardPageState extends State<DashboardPage> {
     );
 
     if (success) {
-      // Update user balance in Firestore
       try {
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'balance': FieldValue.increment(double.parse(amount)),
-          'lastUpdated': FieldValue.serverTimestamp(), // NEW: Add timestamp for tracking
+          'lastUpdated': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        // Fix: Check if widget is mounted before showing dialog and navigating
         if (mounted) {
           _showErrorDialog('Funds added successfully');
-          Navigator.pop(context); // Close bottom sheet on success
+          Navigator.pop(context);
         }
       } catch (e) {
         if (mounted) {
@@ -199,31 +178,25 @@ class _DashboardPageState extends State<DashboardPage> {
         }
       }
     } else {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('Payment failed. Please try again.');
       }
     }
     setState(() {
-      _isLoading = false; // Hide loading indicator
+      _isLoading = false;
     });
-    _amountController.clear(); // Clear amount input
-    _phoneController.clear(); // Clear phone number input
+    _amountController.clear();
+    _phoneController.clear();
   }
 
-  // Handles withdrawing funds via MoMo API and updates Firestore balance
   void _withdrawFunds(String amount, String phoneNumber) async {
-    // Validate amount input
     if (amount.isEmpty || double.tryParse(amount) == null || double.parse(amount) <= 0) {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('Please enter a valid amount greater than 0');
       }
       return;
     }
-    // Validate phone number format
     if (!phoneNumber.startsWith('+') || phoneNumber.length < 10) {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('Please enter a valid phone number (e.g., +256123456789)');
       }
@@ -231,42 +204,37 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     setState(() {
-      _isLoading = true; // Show loading indicator
+      _isLoading = true;
     });
 
     final user = FirebaseAuth.instance.currentUser;
-    // Check if user is authenticated
     if (user == null) {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('User not authenticated');
       }
       setState(() {
-        _isLoading = false; // Hide loading indicator
+        _isLoading = false;
       });
       return;
     }
 
-    // Check sufficient balance in Firestore
     final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     final currentBalance = doc.data()?['balance']?.toDouble() ?? 0.0;
     final withdrawAmount = double.parse(amount);
     if (withdrawAmount > currentBalance) {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('Insufficient balance');
       }
       setState(() {
-        _isLoading = false; // Hide loading indicator
+        _isLoading = false;
       });
       return;
     }
 
     final externalId = DateTime.now().millisecondsSinceEpoch.toString();
-    // Call MoMo API to initiate transfer
     final success = await MomoService.transfer(
       amount: amount,
-      currency: 'UGX', // Changed to UGX for Uganda
+      currency: 'UGX',
       externalId: externalId,
       payeeMobile: phoneNumber,
       payerMessage: 'Withdraw from Safe Budget',
@@ -274,16 +242,14 @@ class _DashboardPageState extends State<DashboardPage> {
     );
 
     if (success) {
-      // Update user balance in Firestore
       try {
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'balance': FieldValue.increment(-withdrawAmount),
-          'lastUpdated': FieldValue.serverTimestamp(), // NEW: Add timestamp for tracking
+          'lastUpdated': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        // Fix: Check if widget is mounted before showing dialog and navigating
         if (mounted) {
           _showErrorDialog('Funds withdrawn successfully');
-          Navigator.pop(context); // Close bottom sheet on success
+          Navigator.pop(context);
         }
       } catch (e) {
         if (mounted) {
@@ -291,38 +257,35 @@ class _DashboardPageState extends State<DashboardPage> {
         }
       }
     } else {
-      // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
         _showErrorDialog('Withdrawal failed. Please try again.');
       }
     }
     setState(() {
-      _isLoading = false; // Hide loading indicator
+      _isLoading = false;
     });
-    _amountController.clear(); // Clear amount input
-    _phoneController.clear(); // Clear phone number input
+    _amountController.clear();
+    _phoneController.clear();
   }
 
-  // Shows a modal bottom sheet for user actions (e.g., add funds, withdraw, view goals)
   void _showActionSheet(BuildContext context, String title, Widget content) {
-    _resetTimer(); // Reset inactivity timer when opening sheet
+    _resetTimer();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.5, // Initial height of the sheet
-        minChildSize: 0.3, // Minimum height of the sheet
-        maxChildSize: 0.6, // Maximum height of the sheet
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.6,
         builder: (context, scrollController) => Container(
           decoration: const BoxDecoration(
-            color: Color(0xFFF8F6F2), // Light beige background
+            color: Color(0xFFF8F6F2),
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Header with title and close button
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
@@ -339,20 +302,20 @@ class _DashboardPageState extends State<DashboardPage> {
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.black),
                       onPressed: () {
-                        _resetTimer(); // Reset timer on close
-                        Navigator.pop(context); // Close bottom sheet
+                        _resetTimer();
+                        Navigator.pop(context);
                       },
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1), // Separator line
+              const Divider(height: 1),
               Expanded(
                 child: SingleChildScrollView(
                   controller: scrollController,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: content, // Content of the bottom sheet (e.g., form fields)
+                    child: content,
                   ),
                 ),
               ),
@@ -361,7 +324,7 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
       ),
     ).whenComplete(() {
-      _resetTimer(); // Reset timer when sheet is closed
+      _resetTimer();
     });
   }
 
@@ -369,11 +332,9 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    // Check if user is authenticated; redirect to login if not
     if (user == null) {
       print('No authenticated user found');
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // Fix: Check if widget is mounted before using Navigator
         if (mounted) {
           Navigator.pushReplacementNamed(context, '/login');
         }
@@ -381,19 +342,18 @@ class _DashboardPageState extends State<DashboardPage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Main UI with gesture detection for resetting inactivity timer
     return GestureDetector(
-      onTap: _resetTimer, // Reset timer on tap
-      onPanDown: (_) => _resetTimer(), // Reset timer on pan
+      onTap: _resetTimer,
+      onPanDown: (_) => _resetTimer(),
       behavior: HitTestBehavior.translucent,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF8F6F2), // Light beige background
+        backgroundColor: const Color(0xFFF8F6F2),
         appBar: AppBar(
           title: const Text('Safe Budget Dashboard'),
           actions: [
             IconButton(
               icon: const Icon(Icons.logout),
-              onPressed: _signOut, // Sign out on tap
+              onPressed: _signOut,
             ),
           ],
         ),
@@ -401,8 +361,7 @@ class _DashboardPageState extends State<DashboardPage> {
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
             children: [
-              const SizedBox(height: 32), // Spacing
-              // User greeting
+              const SizedBox(height: 32),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Align(
@@ -413,8 +372,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16), // Spacing
-              // StreamBuilder to display user balance from Firestore
+              const SizedBox(height: 16),
               StreamBuilder<DocumentSnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('users')
@@ -422,17 +380,13 @@ class _DashboardPageState extends State<DashboardPage> {
                     .snapshots(),
                 builder: (context, snapshot) {
                   Widget balanceWidget;
-                  // Handle Firestore errors
                   if (snapshot.hasError) {
                     print('Firestore error: ${snapshot.error}');
                     balanceWidget = const Text(
                       'Error loading balance',
                       style: TextStyle(color: Colors.white, fontSize: 18),
                     );
-                  }
-                  // Handle no data or missing document
-                  else if (!snapshot.hasData || !snapshot.data!.exists) {
-                    // NEW: Show 0.00 while initializing user document
+                  } else if (!snapshot.hasData || !snapshot.data!.exists) {
                     balanceWidget = const Text(
                       'UGX 0.00',
                       style: TextStyle(
@@ -441,11 +395,9 @@ class _DashboardPageState extends State<DashboardPage> {
                         fontWeight: FontWeight.bold,
                       ),
                     );
-                  }
-                  // Display balance
-                  else {
+                  } else {
                     final data = snapshot.data!.data() as Map<String, dynamic>?;
-                    final balance = data?['balance']?.toDouble() ?? 0.0; // NEW: Default to 0.0 if balance is null
+                    final balance = data?['balance']?.toDouble() ?? 0.0;
                     balanceWidget = Text(
                       'UGX ${balance.toStringAsFixed(2)}',
                       style: const TextStyle(
@@ -478,8 +430,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   );
                 },
               ),
-              const SizedBox(height: 24), // Spacing
-              // Quick actions header
+              const SizedBox(height: 24),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12),
                 child: Align(
@@ -490,13 +441,11 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12), // Spacing
-              // Action cards for add funds, withdraw, and view goals
+              const SizedBox(height: 12),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
-                    // Add Funds card
                     Expanded(
                       child: HoverCard(
                         label: 'Add Funds',
@@ -507,7 +456,6 @@ class _DashboardPageState extends State<DashboardPage> {
                             'Add Funds',
                             Column(
                               children: [
-                                // Amount input field
                                 TextField(
                                   controller: _amountController,
                                   decoration: const InputDecoration(
@@ -518,7 +466,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                   keyboardType: TextInputType.number,
                                 ),
                                 const SizedBox(height: 16),
-                                // Phone number input field
                                 TextField(
                                   controller: _phoneController,
                                   decoration: const InputDecoration(
@@ -529,7 +476,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                   keyboardType: TextInputType.phone,
                                 ),
                                 const SizedBox(height: 16),
-                                // Submit button for adding funds
                                 _isLoading
                                     ? const CircularProgressIndicator()
                                     : ElevatedButton(
@@ -553,8 +499,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         },
                       ),
                     ),
-                    const SizedBox(width: 12), // Spacing
-                    // Withdraw card
+                    const SizedBox(width: 12),
                     Expanded(
                       child: HoverCard(
                         label: 'Withdraw',
@@ -565,7 +510,6 @@ class _DashboardPageState extends State<DashboardPage> {
                             'Withdraw Funds',
                             Column(
                               children: [
-                                // Amount input field
                                 TextField(
                                   controller: _amountController,
                                   decoration: const InputDecoration(
@@ -576,7 +520,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                   keyboardType: TextInputType.number,
                                 ),
                                 const SizedBox(height: 16),
-                                // Phone number input field
                                 TextField(
                                   controller: _phoneController,
                                   decoration: const InputDecoration(
@@ -587,7 +530,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                   keyboardType: TextInputType.phone,
                                 ),
                                 const SizedBox(height: 16),
-                                // Submit button for withdrawing funds
                                 _isLoading
                                     ? const CircularProgressIndicator()
                                     : ElevatedButton(
@@ -611,8 +553,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         },
                       ),
                     ),
-                    const SizedBox(width: 12), // Spacing
-                    // View Goals card
+                    const SizedBox(width: 12),
                     Expanded(
                       child: HoverCard(
                         label: 'View Goals',
@@ -623,18 +564,15 @@ class _DashboardPageState extends State<DashboardPage> {
                             'Financial Goals',
                             Column(
                               children: [
-                                // Display message if no goals exist
                                 Text(
                                   'No goals set yet.',
                                   style: TextStyle(fontSize: 16),
                                 ),
                                 const SizedBox(height: 16),
-                                // Button to add a new goal
                                 ElevatedButton(
                                   onPressed: () {
-                                    // TODO: Implement add goal logic (e.g., save goal to Firestore with amount and description)
                                     _resetTimer();
-                                    Navigator.pop(context); // Close bottom sheet
+                                    Navigator.pop(context);
                                   },
                                   style: ElevatedButton.styleFrom(
                                     minimumSize: const Size(double.infinity, 50),
@@ -660,11 +598,10 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 }
 
-// HoverCard widget for interactive action cards with hover effects
 class HoverCard extends StatefulWidget {
-  final String label; // Label for the card (e.g., "Add Funds")
-  final IconData icon; // Icon to display on the card
-  final VoidCallback onTap; // Callback for tap action
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
 
   const HoverCard({
     required this.label,
@@ -677,27 +614,26 @@ class HoverCard extends StatefulWidget {
   State<HoverCard> createState() => _HoverCardState();
 }
 
-// State class for HoverCard, managing hover animation
 class _HoverCardState extends State<HoverCard> {
-  bool _isHovered = false; // Tracks hover state
+  bool _isHovered = false;
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true), // Set hover state on mouse enter
-      onExit: (_) => setState(() => _isHovered = false), // Clear hover state on mouse exit
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(
-        onTap: widget.onTap, // Trigger tap callback
+        onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200), // Animation duration
-          curve: Curves.easeInOut, // Smooth animation curve
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
           padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
-            color: _isHovered ? Colors.grey.shade200 : Colors.grey.shade100, // Change color on hover
+            color: _isHovered ? Colors.grey.shade200 : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: _isHovered ? Colors.blue.shade100 : Colors.grey.shade300, // Change shadow on hover
+                color: _isHovered ? Colors.blue.shade100 : Colors.grey.shade300,
                 blurRadius: _isHovered ? 6 : 4,
                 offset: const Offset(0, 2),
               ),
@@ -706,8 +642,8 @@ class _HoverCardState extends State<HoverCard> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(widget.icon, size: 28, color: Colors.blue.shade800), // Display icon
-              const SizedBox(height: 8), // Spacing
+              Icon(widget.icon, size: 28, color: Colors.blue.shade800),
+              const SizedBox(height: 8),
               Text(
                 widget.label,
                 textAlign: TextAlign.center,

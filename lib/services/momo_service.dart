@@ -40,7 +40,10 @@ class MomoService {
     required String payeeNote,
   }) async {
     final token = await getAccessToken();
-    if (token == null) return false;
+    if (token == null) {
+      print('No access token for requestToPay');
+      return false;
+    }
 
     try {
       final response = await http.post(
@@ -56,7 +59,10 @@ class MomoService {
           'amount': amount,
           'currency': currency,
           'externalId': externalId,
-          'payer': {'partyIdType': 'MSISDN', 'partyId': payerMobile},
+          'payer': {
+            'partyIdType': 'MSISDN',
+            'partyId': payerMobile.replaceAll('+', ''), // Remove '+' prefix
+          },
           'payerMessage': payerMessage,
           'payeeNote': payeeNote,
         }),
@@ -64,7 +70,9 @@ class MomoService {
 
       if (response.statusCode == 202) {
         print('Request to Pay initiated: ${response.body}');
-        return true;
+        // Check transaction status
+        final status = await _checkTransactionStatus(externalId, token);
+        return status == 'SUCCESSFUL';
       } else {
         print('Request to Pay failed: ${response.statusCode}, ${response.body}');
         return false;
@@ -85,7 +93,10 @@ class MomoService {
     required String payeeNote,
   }) async {
     final token = await getAccessToken();
-    if (token == null) return false;
+    if (token == null) {
+      print('No access token for transfer');
+      return false;
+    }
 
     try {
       final response = await http.post(
@@ -101,7 +112,10 @@ class MomoService {
           'amount': amount,
           'currency': currency,
           'externalId': externalId,
-          'payee': {'partyIdType': 'MSISDN', 'partyId': payeeMobile},
+          'payee': {
+            'partyIdType': 'MSISDN',
+            'partyId': payeeMobile.replaceAll('+', ''), // Remove '+' prefix
+          },
           'payerMessage': payerMessage,
           'payeeNote': payeeNote,
         }),
@@ -109,7 +123,9 @@ class MomoService {
 
       if (response.statusCode == 202) {
         print('Transfer initiated: ${response.body}');
-        return true;
+        // Check transaction status
+        final status = await _checkTransactionStatus(externalId, token, isDisbursement: true);
+        return status == 'SUCCESSFUL';
       } else {
         print('Transfer failed: ${response.statusCode}, ${response.body}');
         return false;
@@ -117,6 +133,44 @@ class MomoService {
     } catch (e) {
       print('Error in Transfer: $e');
       return false;
+    }
+  }
+
+  // Check transaction status
+  static Future<String?> _checkTransactionStatus(String externalId, String token,
+      {bool isDisbursement = false}) async {
+    try {
+      final endpoint = isDisbursement
+          ? '${ApiConstants.baseUrl}${ApiConstants.disbursementsEndpoint}/$externalId'
+          : '${ApiConstants.baseUrl}${ApiConstants.collectionsEndpoint}/$externalId';
+      // Poll up to 3 times with 5-second intervals
+      for (int i = 0; i < 3; i++) {
+        final response = await http.get(
+          Uri.parse(endpoint),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'X-Target-Environment': 'sandbox',
+            'Ocp-Apim-Subscription-Key': ApiConstants.subscriptionKey,
+          },
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final status = data['status'];
+          print('Transaction status for $externalId: $status');
+          if (status == 'SUCCESSFUL' || status == 'FAILED') {
+            return status;
+          }
+        } else {
+          print('Status check failed: ${response.statusCode}, ${response.body}');
+        }
+        await Future.delayed(const Duration(seconds: 5));
+      }
+      print('Transaction status pending after retries: $externalId');
+      return null;
+    } catch (e) {
+      print('Error checking transaction status: $e');
+      return null;
     }
   }
 }
