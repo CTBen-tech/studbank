@@ -17,10 +17,11 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Future<void> _resetPassword() async {
     final email = _emailController.text.trim();
     if (email.isEmpty || !RegExp(r'^[\w-\.]+@[\w-]+\.[a-zA-Z]+$').hasMatch(email)) {
-      setState(() {
-        _errorMessage = 'Please enter a valid email';
-        _successMessage = null;
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a valid email')),
+        );
+      }
       return;
     }
 
@@ -37,14 +38,26 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           _successMessage = 'Password reset email sent. Check your inbox.';
           _isLoading = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password reset email sent. Check your inbox.')),
+        );
       }
     } on FirebaseAuthException catch (e) {
+      print('FirebaseAuthException: ${e.code}, ${e.message}');
       String errorMessage = 'Failed to send reset email';
       switch (e.code) {
         case 'user-not-found':
           errorMessage = 'No user found with this email.';
+          break;
         case 'invalid-email':
           errorMessage = 'Invalid email format.';
+          break;
+        case 'too-many-requests':
+          errorMessage = 'Too many requests. Please try again later.';
+          break;
+        case 'network-request-failed':
+          errorMessage = 'Network error. Please check your connection.';
+          break;
         default:
           errorMessage = 'Error: ${e.message}';
       }
@@ -53,13 +66,20 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           _errorMessage = errorMessage;
           _isLoading = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage)),
+        );
       }
     } catch (e) {
+      print('Unexpected error: $e');
       if (mounted) {
         setState(() {
           _errorMessage = 'An unexpected error occurred: $e';
           _isLoading = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('An unexpected error occurred: $e')),
+        );
       }
     }
   }

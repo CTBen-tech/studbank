@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:studbank/services/auth_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -27,28 +28,22 @@ class LoginPageState extends State<LoginPage> {
   Future<void> _login() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
+
+    // Validate inputs
     if (email.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter your email')),
-        );
-      }
+      _showSnackBar('Please enter your email');
       return;
     }
     if (!RegExp(r'^[\w-\.]+@[\w-]+\.[a-zA-Z]+$').hasMatch(email)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter a valid email')),
-        );
-      }
+      _showSnackBar('Please enter a valid email');
       return;
     }
     if (password.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter your password')),
-        );
-      }
+      _showSnackBar('Please enter your password');
+      return;
+    }
+    if (password.length < 6) {
+      _showSnackBar('Password must be at least 6 characters');
       return;
     }
 
@@ -57,10 +52,15 @@ class LoginPageState extends State<LoginPage> {
     });
 
     try {
-      await _auth.signInWithEmailAndPassword(
+      // Sign in with Firebase Auth
+      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+
+      // Initialize user in Firestore with balance
+      await AuthService.initializeUser(userCredential.user!);
+
       if (mounted) {
         print('Login successful, navigating to /dashboard');
         Navigator.pushReplacementNamed(context, '/dashboard');
@@ -80,30 +80,35 @@ class LoginPageState extends State<LoginPage> {
         case 'invalid-credential':
           errorMessage = 'Invalid email or password.';
         case 'too-many-requests':
-          errorMessage = 'Too many attempts. Try again later.';
+          errorMessage = 'Too many attempts. Please try again later.';
         case 'network-request-failed':
-          errorMessage = 'Network error. Check your connection.';
+          errorMessage = 'Network error. Please check your connection.';
         default:
           errorMessage = 'Login failed: ${e.message}';
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage)),
-        );
-      }
+      _showSnackBar(errorMessage);
     } catch (e) {
       print('Unexpected error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('An unexpected error occurred: $e')),
-        );
-      }
+      _showSnackBar('An unexpected error occurred. Please try again.');
     } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  // Helper method to show SnackBar
+  void _showSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -117,34 +122,77 @@ class LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Safe Budget Login')),
+      backgroundColor: const Color(0xFFF8F6F2), // Match DashboardPage background
+      appBar: AppBar(
+        title: const Text('StudBank Login'),
+        backgroundColor: Colors.blue.shade700,
+        foregroundColor: Colors.white,
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 20),
+              const SizedBox(height: 32),
+              // Welcome text
+              const Text(
+                'Welcome to StudBank',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Sign in to manage your finances',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey.shade600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              // Email input
               TextField(
                 controller: _emailController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Email',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  prefixIcon: const Icon(Icons.email, color: Colors.blue),
+                  filled: true,
+                  fillColor: Colors.white,
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.redAccent),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.blue, width: 2),
+                  ),
                 ),
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
+              // Password input
               TextField(
                 controller: _passwordController,
                 decoration: InputDecoration(
                   labelText: 'Password',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.lock),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  prefixIcon: const Icon(Icons.lock, color: Colors.blue),
                   suffixIcon: IconButton(
                     icon: Icon(
                       _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                      color: Colors.blue,
                     ),
                     onPressed: () {
                       setState(() {
@@ -152,42 +200,70 @@ class LoginPageState extends State<LoginPage> {
                       });
                     },
                   ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.redAccent),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.blue, width: 2),
+                  ),
                 ),
                 obscureText: _obscurePassword,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _login(),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
+              // Login button
               _isLoading
-                  ? const CircularProgressIndicator()
+                  ? const Center(child: CircularProgressIndicator(color: Colors.blue))
                   : ElevatedButton(
                       onPressed: _login,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
+                        backgroundColor: Colors.blue.shade700,
                         foregroundColor: Colors.white,
                         minimumSize: const Size(double.infinity, 50),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(12),
                         ),
+                        elevation: 4,
                       ),
-                      child: const Text('Login', style: TextStyle(fontSize: 16)),
+                      child: const Text(
+                        'Login',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
                     ),
-              const SizedBox(height: 10),
-              TextButton(
-                onPressed: () {
-                  if (mounted) {
-                    Navigator.pushNamed(context, '/signup');
-                  }
-                },
-                child: const Text('Create an Account'),
-              ),
-              TextButton(
-                onPressed: () {
-                  if (mounted) {
-                    Navigator.pushNamed(context, '/forgot-password');
-                  }
-                },
-                child: const Text('Forgot Password?'),
+              const SizedBox(height: 16),
+              // Navigation to Sign-Up and Forgot Password
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      if (mounted) {
+                        Navigator.pushNamed(context, '/signup');
+                      }
+                    },
+                    child: const Text(
+                      'Create an Account',
+                      style: TextStyle(color: Colors.blue, fontSize: 16),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  TextButton(
+                    onPressed: () {
+                      if (mounted) {
+                        Navigator.pushNamed(context, '/forgot-password');
+                      }
+                    },
+                    child: const Text(
+                      'Forgot Password?',
+                      style: TextStyle(color: Colors.blue, fontSize: 16),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

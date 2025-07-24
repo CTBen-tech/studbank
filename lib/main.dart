@@ -8,6 +8,7 @@ import 'pages/forgot_password.dart'; // Added import for ForgotPasswordPage
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 

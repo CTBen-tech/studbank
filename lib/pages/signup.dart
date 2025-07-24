@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
@@ -15,7 +16,7 @@ class SignUpPageState extends State<SignUpPage> {
   final _passwordController = TextEditingController();
   final _auth = FirebaseAuth.instance;
   bool _isLoading = false;
-  bool _obscurePassword = true; // Added for password visibility toggle
+  bool _obscurePassword = true;
 
   Future<void> _signUp() async {
     if (_nameController.text.trim().isEmpty) {
@@ -64,11 +65,16 @@ class SignUpPageState extends State<SignUpPage> {
 
       User? user = userCredential.user;
       if (user != null && mounted) {
+        // Initialize user in Firestore with balance
+        await AuthService.initializeUser(user);
+        // Set additional user data
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'name': _nameController.text.trim(),
           'email': email,
           'createdAt': Timestamp.now(),
-        });
+        }, SetOptions(merge: true)); // Use merge to preserve balance
+        print('Sign-up successful, navigating to /dashboard');
+        Navigator.pushReplacementNamed(context, '/dashboard');
       }
     } catch (e) {
       String errorMessage = 'Sign-up failed';
@@ -76,10 +82,13 @@ class SignUpPageState extends State<SignUpPage> {
         switch (e.code) {
           case 'email-already-in-use':
             errorMessage = 'This email is already registered';
+            break;
           case 'invalid-email':
             errorMessage = 'Invalid email format';
+            break;
           case 'weak-password':
             errorMessage = 'Password is too weak';
+            break;
           default:
             errorMessage = 'Sign-up failed: ${e.message}';
         }
@@ -109,22 +118,21 @@ class SignUpPageState extends State<SignUpPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Safe budget Sign Up')),
+      appBar: AppBar(title: const Text('Safe Budget Sign Up')),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
               Text(
-                'Welcome to the safe budget app',
+                'Welcome to the Safe Budget App',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  //color: Colors.blue,
                 ),
               ),
-               Text(
-                'Sign in to continue managing your finaces.',
+              Text(
+                'Sign up to start managing your finances.',
                 style: TextStyle(fontSize: 16),
               ),
               SizedBox(height: 10),
@@ -176,7 +184,7 @@ class SignUpPageState extends State<SignUpPage> {
                   : ElevatedButton(
                       onPressed: _signUp,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue, 
+                        backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                         minimumSize: const Size(double.infinity, 50),
                         shape: RoundedRectangleBorder(

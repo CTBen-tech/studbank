@@ -28,6 +28,32 @@ class _DashboardPageState extends State<DashboardPage> {
     _resetTimer(); // Initialize inactivity timer
     // Reference ApiConstants to avoid unused_import warning (logs MoMo API base URL)
     print('MoMo API Base URL: ${ApiConstants.baseUrl}');
+    // NEW: Initialize user document in Firestore
+    _initializeUser();
+  }
+
+  // NEW: Initialize user document with default balance
+  void _initializeUser() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final docSnapshot = await userRef.get();
+      if (!docSnapshot.exists) {
+        // Create user document with default balance
+        await userRef.set({
+          'uid': user.uid,
+          'email': user.email,
+          'displayName': user.displayName ?? 'Guest',
+          'balance': 0.0,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else if (docSnapshot.data()?['balance'] == null) {
+        // Ensure balance field exists
+        await userRef.set({
+          'balance': 0.0,
+        }, SetOptions(merge: true));
+      }
+    }
   }
 
   // Resets the inactivity timer to 5 minutes
@@ -114,7 +140,7 @@ class _DashboardPageState extends State<DashboardPage> {
     if (amount.isEmpty || double.tryParse(amount) == null || double.parse(amount) <= 0) {
       // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
-        _showErrorDialog('Please enter a valid amount');
+        _showErrorDialog('Please enter a valid amount greater than 0');
       }
       return;
     }
@@ -157,18 +183,25 @@ class _DashboardPageState extends State<DashboardPage> {
 
     if (success) {
       // Update user balance in Firestore
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'balance': FieldValue.increment(double.parse(amount)),
-      }, SetOptions(merge: true));
-      // Fix: Check if widget is mounted before showing dialog and navigating
-      if (mounted) {
-        _showErrorDialog('Funds added successfully'); // Using dialog for consistency
-        Navigator.pop(context); // Close bottom sheet on success
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'balance': FieldValue.increment(double.parse(amount)),
+          'lastUpdated': FieldValue.serverTimestamp(), // NEW: Add timestamp for tracking
+        }, SetOptions(merge: true));
+        // Fix: Check if widget is mounted before showing dialog and navigating
+        if (mounted) {
+          _showErrorDialog('Funds added successfully');
+          Navigator.pop(context); // Close bottom sheet on success
+        }
+      } catch (e) {
+        if (mounted) {
+          _showErrorDialog('Failed to update balance: $e');
+        }
       }
     } else {
       // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
-        _showErrorDialog('Failed to add funds');
+        _showErrorDialog('Payment failed. Please try again.');
       }
     }
     setState(() {
@@ -184,7 +217,7 @@ class _DashboardPageState extends State<DashboardPage> {
     if (amount.isEmpty || double.tryParse(amount) == null || double.parse(amount) <= 0) {
       // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
-        _showErrorDialog('Please enter a valid amount');
+        _showErrorDialog('Please enter a valid amount greater than 0');
       }
       return;
     }
@@ -242,18 +275,25 @@ class _DashboardPageState extends State<DashboardPage> {
 
     if (success) {
       // Update user balance in Firestore
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'balance': FieldValue.increment(-withdrawAmount),
-      }, SetOptions(merge: true));
-      // Fix: Check if widget is mounted before showing dialog and navigating
-      if (mounted) {
-        _showErrorDialog('Funds withdrawn successfully'); // Using dialog for consistency
-        Navigator.pop(context); // Close bottom sheet on success
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'balance': FieldValue.increment(-withdrawAmount),
+          'lastUpdated': FieldValue.serverTimestamp(), // NEW: Add timestamp for tracking
+        }, SetOptions(merge: true));
+        // Fix: Check if widget is mounted before showing dialog and navigating
+        if (mounted) {
+          _showErrorDialog('Funds withdrawn successfully');
+          Navigator.pop(context); // Close bottom sheet on success
+        }
+      } catch (e) {
+        if (mounted) {
+          _showErrorDialog('Failed to update balance: $e');
+        }
       }
     } else {
       // Fix: Check if widget is mounted before showing dialog
       if (mounted) {
-        _showErrorDialog('Failed to withdraw funds');
+        _showErrorDialog('Withdrawal failed. Please try again.');
       }
     }
     setState(() {
@@ -390,11 +430,11 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(color: Colors.white, fontSize: 18),
                     );
                   }
-                  // Handle no data or missing balance
-                  else if (!snapshot.hasData || !snapshot.data!.exists || snapshot.data!.data() == null) {
-                    print('Firestore: No data for user ${user.uid}');
+                  // Handle no data or missing document
+                  else if (!snapshot.hasData || !snapshot.data!.exists) {
+                    // NEW: Show 0.00 while initializing user document
                     balanceWidget = const Text(
-                      'Balance Not Found',
+                      'UGX 0.00',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 32,
@@ -402,12 +442,12 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     );
                   }
-                  // Display balance in UGX
+                  // Display balance
                   else {
-                    final data = snapshot.data!.data() as Map<String, dynamic>;
-                    final balance = data['balance']?.toDouble() ?? 0.0;
+                    final data = snapshot.data!.data() as Map<String, dynamic>?;
+                    final balance = data?['balance']?.toDouble() ?? 0.0; // NEW: Default to 0.0 if balance is null
                     balanceWidget = Text(
-                      'UGX ${balance.toStringAsFixed(2)}', // Changed to UGX
+                      'UGX ${balance.toStringAsFixed(2)}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 32,
