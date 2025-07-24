@@ -48,16 +48,16 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       switch (e.code) {
         case 'user-not-found':
           errorMessage = 'No user found with this email.';
-          break;
+          
         case 'invalid-email':
           errorMessage = 'Invalid email format.';
-          break;
+          
         case 'too-many-requests':
           errorMessage = 'Too many requests. Please try again later.';
-          break;
+          
         case 'network-request-failed':
           errorMessage = 'Network error. Please check your connection.';
-          break;
+          
         default:
           errorMessage = 'Error: ${e.message}';
       }

@@ -65,16 +65,16 @@ class SignUpPageState extends State<SignUpPage> {
 
       User? user = userCredential.user;
       if (user != null && mounted) {
-        // Initialize user in Firestore with balance
         await AuthService.initializeUser(user);
-        // Set additional user data
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'name': _nameController.text.trim(),
           'email': email,
           'createdAt': Timestamp.now(),
-        }, SetOptions(merge: true)); // Use merge to preserve balance
+        }, SetOptions(merge: true));
         print('Sign-up successful, navigating to /dashboard');
-        Navigator.pushReplacementNamed(context, '/dashboard');
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/dashboard'); // 🛡️ safe to call
+        }
       }
     } catch (e) {
       String errorMessage = 'Sign-up failed';
@@ -82,13 +82,13 @@ class SignUpPageState extends State<SignUpPage> {
         switch (e.code) {
           case 'email-already-in-use':
             errorMessage = 'This email is already registered';
-            break;
+            
           case 'invalid-email':
             errorMessage = 'Invalid email format';
-            break;
+            
           case 'weak-password':
             errorMessage = 'Password is too weak';
-            break;
+            
           default:
             errorMessage = 'Sign-up failed: ${e.message}';
         }

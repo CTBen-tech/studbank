@@ -1,21 +1,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-
-
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
@@ -35,20 +20,27 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <!-- 🚀 Launch Flutter app -->
   <script src="flutter_bootstrap.js" async></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
-  
-  <script>
-  const firebaseConfig = {
-    apiKey: "your-api-key",
-    authDomain: "your-project-id.firebaseapp.com",
-    projectId: "your-project-id",
-    // ... other config values from Firebase Console
-  };
-  firebase.initializeApp(firebaseConfig);
-</script>
 
+  <!-- ✅ Load Firebase SDK as ES modules to avoid syntax errors -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
+    const firebaseConfig = {
+        apiKey: "AIzaSyBXgLlhF8d4diVkPV_CJ09KyAwMKZRkzdQ",
+        authDomain: "studbank.firebaseapp.com",
+        projectId: "studbank",
+        storageBucket: "studbank.firebasestorage.app",
+        messagingSenderId: "74664026083",
+        appId: "1:74664026083:web:64333082161d56423b4ad6"
+      };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    console.log("✅ Firebase initialized");
+  </script>
 </body>
 </html>
