@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base href="$FLUTTER_BASE_HREF">
-
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge">
   <meta name="description" content="A new Flutter project.">
 
   <!-- iOS meta tags & icons -->
@@ -20,15 +20,14 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
-  <!-- 🚀 Launch Flutter app -->
-  <script src="flutter_bootstrap.js" async></script>
-
-  <!-- ✅ Load Firebase SDK as ES modules to avoid syntax errors -->
+  <!-- Firebase SDK -->
   <script type="module">
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-    import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+    import { getAuth } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+    import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
-    const firebaseConfig = {
+    try {
+      const firebaseConfig = {
         apiKey: "AIzaSyBXgLlhF8d4diVkPV_CJ09KyAwMKZRkzdQ",
         authDomain: "studbank.firebaseapp.com",
         projectId: "studbank",
@@ -36,11 +35,17 @@
         messagingSenderId: "74664026083",
         appId: "1:74664026083:web:64333082161d56423b4ad6"
       };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-
-    console.log("✅ Firebase initialized");
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      console.log("✅ Firebase initialized successfully");
+    } catch (e) {
+      console.error("❌ Firebase initialization failed:", e);
+    }
   </script>
+
+  <!-- Flutter app -->
+  <script src="flutter_bootstrap.js" async></script>
+  <script src="main.dart.js" type="application/javascript"></script>
 </body>
 </html>

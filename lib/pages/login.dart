@@ -1,3 +1,4 @@
+// File: C:\Users\BENJA\Desktop\flutter project recess\studbank\studbank\lib\pages\login.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:studbank/services/auth_service.dart';
@@ -15,15 +16,6 @@ class LoginPageState extends State<LoginPage> {
   final _auth = FirebaseAuth.instance;
   bool _isLoading = false;
   bool _obscurePassword = true;
-
-  @override
-  void initState() {
-    super.initState();
-    // Sign out any existing user to force re-authentication
-    _auth.signOut().catchError((e) {
-      print('Sign-out error: $e');
-    });
-  }
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -51,50 +43,65 @@ class LoginPageState extends State<LoginPage> {
       _isLoading = true;
     });
 
-    try {
-      // Sign in with Firebase Auth
-      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+    // Retry logic for network errors
+    int retries = 3;
+    int attempt = 1;
+    while (attempt <= retries) {
+      try {
+        print('Attempting login (attempt $attempt/$retries)...');
+        // Sign in with Firebase Auth
+        UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
 
-      // Initialize user in Firestore with balance
-      await AuthService.initializeUser(userCredential.user!);
+        // Initialize user in Firestore
+        await AuthService.initializeUser(userCredential.user!);
 
-      if (mounted) {
-        print('Login successful, navigating to /dashboard');
-        Navigator.pushReplacementNamed(context, '/dashboard');
-      }
-    } on FirebaseAuthException catch (e) {
-      print('FirebaseAuthException: ${e.code}, ${e.message}');
-      String errorMessage = 'Login failed';
-      switch (e.code) {
-        case 'user-not-found':
-          errorMessage = 'No user found with this email.';
-        case 'wrong-password':
-          errorMessage = 'Incorrect password.';
-        case 'invalid-email':
-          errorMessage = 'Invalid email format.';
-        case 'user-disabled':
-          errorMessage = 'This account has been disabled.';
-        case 'invalid-credential':
-          errorMessage = 'Invalid email or password.';
-        case 'too-many-requests':
-          errorMessage = 'Too many attempts. Please try again later.';
-        case 'network-request-failed':
-          errorMessage = 'Network error. Please check your connection.';
-        default:
-          errorMessage = 'Login failed: ${e.message}';
-      }
-      _showSnackBar(errorMessage);
-    } catch (e) {
-      print('Unexpected error: $e');
-      _showSnackBar('An unexpected error occurred. Please try again.');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        if (mounted) {
+          print('Login successful, navigating to /dashboard');
+          Navigator.pushReplacementNamed(context, '/dashboard');
+        }
+        break; // Exit loop on success
+      } on FirebaseAuthException catch (e) {
+        print('FirebaseAuthException: ${e.code}, ${e.message}');
+        String errorMessage = 'Login failed';
+        switch (e.code) {
+          case 'user-not-found':
+            errorMessage = 'No user found with this email.';
+          case 'wrong-password':
+            errorMessage = 'Incorrect password.';
+          case 'invalid-email':
+            errorMessage = 'Invalid email format.';
+          case 'user-disabled':
+            errorMessage = 'This account has been disabled.';
+          case 'invalid-credential':
+            errorMessage = 'Invalid email or password.';
+          case 'too-many-requests':
+            errorMessage = 'Too many attempts. Please try again later.';
+          case 'network-request-failed':
+            errorMessage = 'Network error. Please check your connection.';
+            if (attempt < retries) {
+              print('Retrying login due to network error...');
+              await Future.delayed(Duration(seconds: attempt * 2));
+              attempt++;
+              continue;
+            }
+          default:
+            errorMessage = 'Login failed: ${e.message}';
+        }
+        _showSnackBar(errorMessage);
+        break; // Exit loop on non-network errors
+      } catch (e) {
+        print('Unexpected error: $e');
+        _showSnackBar('An unexpected error occurred. Please try again.');
+        break;
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     }
   }
@@ -122,7 +129,7 @@ class LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F6F2), // Match DashboardPage background
+      backgroundColor: const Color(0xFFF8F6F2),
       appBar: AppBar(
         title: const Text('StudBank Login'),
         backgroundColor: Colors.blue.shade700,
@@ -136,7 +143,6 @@ class LoginPageState extends State<LoginPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 32),
-              // Welcome text
               const Text(
                 'Welcome to StudBank',
                 style: TextStyle(
@@ -158,6 +164,7 @@ class LoginPageState extends State<LoginPage> {
               const SizedBox(height: 32),
               // Email input
               TextField(
+                key: const ValueKey('email'), // Ensure id/name in HTML
                 controller: _emailController,
                 decoration: InputDecoration(
                   labelText: 'Email',
@@ -182,6 +189,7 @@ class LoginPageState extends State<LoginPage> {
               const SizedBox(height: 16),
               // Password input
               TextField(
+                key: const ValueKey('password'), // Ensure id/name in HTML
                 controller: _passwordController,
                 decoration: InputDecoration(
                   labelText: 'Password',

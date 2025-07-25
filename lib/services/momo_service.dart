@@ -1,44 +1,50 @@
-// lib/services/momo_service.dart
-
+// File: C:\Users\BENJA\Desktop\flutter project recess\studbank\studbank\lib\services\momo_service.dart
 import 'dart:convert';
-import 'dart:async';
 import 'package:http/http.dart' as http;
-import '../api_constants.dart';
 
 class MomoService {
-  /// Generate OAuth token for MoMo API
+  static const String _baseUrl = 'https://momo-proxy.studbank.workers.dev';
+
   static Future<String?> getAccessToken() async {
-    final String basicAuth = base64Encode(
-      utf8.encode('${ApiConstants.apiUserId}:${ApiConstants.apiKey}'),
-    );
-
-    try {
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.tokenEndpoint}'),
-        headers: {
-          'Authorization': 'Basic $basicAuth',
-          'Content-Type': 'application/json',
-          'Ocp-Apim-Subscription-Key': ApiConstants.subscriptionKey,
-        },
-        body: jsonEncode({}), // Required even if empty for some endpoints
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final token = data['access_token'];
-        print('✅ MoMo Access Token retrieved successfully.');
-        return token;
-      } else {
-        print('❌ Failed to get token: ${response.statusCode} | ${response.body}');
+    int retries = 3;
+    int attempt = 1;
+    while (attempt <= retries) {
+      try {
+        print('Attempting to get MoMo token (attempt $attempt/$retries)...');
+        final response = await http.post(
+          Uri.parse('$_baseUrl/getMomoToken'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({}),
+        );
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['access_token'] != null) {
+            print('Token received: ${data['access_token']}');
+            return data['access_token'];
+          }
+          print('No access_token in response: ${response.body}');
+          return null;
+        }
+        print('Token request failed: ${response.statusCode}, ${response.body}');
+        if (response.statusCode >= 500 && attempt < retries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
+        }
+        return null;
+      } catch (e) {
+        print('Error generating token (attempt $attempt/$retries): $e');
+        if (e.toString().contains('network') && attempt < retries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
+        }
         return null;
       }
-    } catch (e) {
-      print('❌ Exception while getting token: $e');
-      return null;
     }
+    return null;
   }
 
-  /// Request to Pay (Collections - Add Funds)
   static Future<bool> requestToPay({
     required String amount,
     required String currency,
@@ -49,48 +55,52 @@ class MomoService {
   }) async {
     final token = await getAccessToken();
     if (token == null) {
-      print('❌ Cannot proceed with requestToPay, token is null.');
-      return false;
+      print('No access token for requestToPay');
+      throw Exception('Failed to obtain access token');
     }
-
-    try {
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.collectionsEndpoint}'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'X-Reference-Id': externalId,
-          'X-Target-Environment': ApiConstants.targetEnvironment,
-          'Ocp-Apim-Subscription-Key': ApiConstants.subscriptionKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'amount': amount,
-          'currency': currency,
-          'externalId': externalId,
-          'payer': {
-            'partyIdType': 'MSISDN',
-            'partyId': payerMobile.replaceAll('+', ''),
-          },
-          'payerMessage': payerMessage,
-          'payeeNote': payeeNote,
-        }),
-      );
-
-      if (response.statusCode == 202) {
-        print('✅ RequestToPay initiated successfully.');
-        final status = await _checkTransactionStatus(externalId, token);
-        return status == 'SUCCESSFUL';
-      } else {
-        print('❌ RequestToPay failed: ${response.statusCode} | ${response.body}');
-        return false;
+    int retries = 3;
+    int attempt = 1;
+    while (attempt <= retries) {
+      try {
+        print('Attempting requestToPay (attempt $attempt/$retries)...');
+        final response = await http.post(
+          Uri.parse('$_baseUrl/requestToPay'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'amount': amount,
+            'currency': currency,
+            'externalId': externalId,
+            'payerMobile': payerMobile,
+            'payerMessage': payerMessage,
+            'payeeNote': payeeNote,
+            'accessToken': token,
+          }),
+        );
+        print('Request to Pay response: ${response.statusCode}, ${response.body}');
+        if (response.statusCode == 202) {
+          final status = await _checkTransactionStatus(externalId, token);
+          return status == 'SUCCESSFUL';
+        }
+        if (response.statusCode >= 500 && attempt < retries) {
+          print('Server error, retrying: ${response.statusCode}');
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
+        }
+        throw Exception('Request to Pay failed: ${response.statusCode}, ${response.body}');
+      } catch (e) {
+        print('Request to Pay error (attempt $attempt/$retries): $e');
+        if (e.toString().contains('network') && attempt < retries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
+        }
+        throw Exception('Request to Pay failed: $e');
       }
-    } catch (e) {
-      print('❌ Exception in requestToPay: $e');
-      return false;
     }
+    return false;
   }
 
-  /// Transfer (Disbursements - Withdraw Funds)
   static Future<bool> transfer({
     required String amount,
     required String currency,
@@ -101,89 +111,89 @@ class MomoService {
   }) async {
     final token = await getAccessToken();
     if (token == null) {
-      print('❌ Cannot proceed with transfer, token is null.');
-      return false;
+      print('No access token for transfer');
+      throw Exception('Failed to obtain access token');
     }
-
-    try {
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}${ApiConstants.disbursementsEndpoint}'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'X-Reference-Id': externalId,
-          'X-Target-Environment': ApiConstants.targetEnvironment,
-          'Ocp-Apim-Subscription-Key': ApiConstants.subscriptionKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'amount': amount,
-          'currency': currency,
-          'externalId': externalId,
-          'payee': {
-            'partyIdType': 'MSISDN',
-            'partyId': payeeMobile.replaceAll('+', ''),
-          },
-          'payerMessage': payerMessage,
-          'payeeNote': payeeNote,
-        }),
-      );
-
-      if (response.statusCode == 202) {
-        print('✅ Transfer initiated successfully.');
-        final status = await _checkTransactionStatus(
-          externalId,
-          token,
-          isDisbursement: true,
+    int retries = 3;
+    int attempt = 1;
+    while (attempt <= retries) {
+      try {
+        print('Attempting transfer (attempt $attempt/$retries)...');
+        final response = await http.post(
+          Uri.parse('$_baseUrl/transfer'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'amount': amount,
+            'currency': currency,
+            'externalId': externalId,
+            'payeeMobile': payeeMobile,
+            'payerMessage': payerMessage,
+            'payeeNote': payeeNote,
+            'accessToken': token,
+          }),
         );
-        return status == 'SUCCESSFUL';
-      } else {
-        print('❌ Transfer failed: ${response.statusCode} | ${response.body}');
-        return false;
+        print('Transfer response: ${response.statusCode}, ${response.body}');
+        if (response.statusCode == 202) {
+          final status = await _checkTransactionStatus(externalId, token, isDisbursement: true);
+          return status == 'SUCCESSFUL';
+        }
+        if (response.statusCode >= 500 && attempt < retries) {
+          print('Server error, retrying: ${response.statusCode}');
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
+        }
+        throw Exception('Transfer failed: ${response.statusCode}, ${response.body}');
+      } catch (e) {
+        print('Transfer error (attempt $attempt/$retries): $e');
+        if (e.toString().contains('network') && attempt < retries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
+        }
+        throw Exception('Transfer failed: $e');
       }
-    } catch (e) {
-      print('❌ Exception in transfer: $e');
-      return false;
     }
+    return false;
   }
 
-  /// Check transaction status (polls up to 3 times)
-  static Future<String?> _checkTransactionStatus(
-    String externalId,
-    String token, {
-    bool isDisbursement = false,
-  }) async {
-    final endpoint = isDisbursement
-        ? '${ApiConstants.baseUrl}${ApiConstants.disbursementsEndpoint}/$externalId'
-        : '${ApiConstants.baseUrl}${ApiConstants.collectionsEndpoint}/$externalId';
-
-    try {
-      for (int attempt = 1; attempt <= 3; attempt++) {
+  static Future<String?> _checkTransactionStatus(String externalId, String token, {bool isDisbursement = false}) async {
+    int retries = 3;
+    int attempt = 1;
+    while (attempt <= retries) {
+      try {
+        print('Checking transaction status (attempt $attempt/$retries)...');
         final response = await http.get(
-          Uri.parse(endpoint),
-          headers: {
-            'Authorization': 'Bearer $token',
-            'X-Target-Environment': ApiConstants.targetEnvironment,
-            'Ocp-Apim-Subscription-Key': ApiConstants.subscriptionKey,
-          },
+          Uri.parse('$_baseUrl/checkTransactionStatus?externalId=$externalId&accessToken=$token&isDisbursement=$isDisbursement'),
+          headers: {'Content-Type': 'application/json'},
         );
-
+        print('Status check response: ${response.statusCode}, ${response.body}');
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           final status = data['status'];
-          print('ℹ️ Attempt $attempt: Transaction status for $externalId -> $status');
           if (status == 'SUCCESSFUL' || status == 'FAILED') {
             return status;
           }
-        } else {
-          print('❌ Status check failed: ${response.statusCode} | ${response.body}');
+        }
+        if (response.statusCode >= 500 && attempt < retries) {
+          print('Server error, retrying status check: ${response.statusCode}');
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
         }
         await Future.delayed(const Duration(seconds: 5));
+        attempt++;
+      } catch (e) {
+        print('Error checking transaction status (attempt $attempt/$retries): $e');
+        if (e.toString().contains('network') && attempt < retries) {
+          await Future.delayed(Duration(seconds: attempt * 2));
+          attempt++;
+          continue;
+        }
+        return 'FAILED';
       }
-      print('⚠️ Transaction status still pending after retries for $externalId.');
-      return null;
-    } catch (e) {
-      print('❌ Exception while checking transaction status: $e');
-      return null;
     }
+    print('Transaction status pending after retries: $externalId');
+    return 'FAILED';
   }
 }

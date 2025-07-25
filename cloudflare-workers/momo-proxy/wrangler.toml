@@ -1,0 +1,9 @@
+# File: C:\Users\BENJA\Desktop\flutter project recess\studbank\studbank\cloudflare-workers\momo-proxy\wrangler.toml
+name = "momo-proxy"
+compatibility_date = "2025-07-24"
+main = "src/index.js"
+
+[[vars]]
+MOMO_API_USER_ID = "c00150b6-07d7-4d83-b71d-5be9a855a2a1"
+MOMO_API_KEY = "7ce2922beccb418e914db324003d33ed"
+MOMO_SUBSCRIPTION_KEY = "2c28040e2be54efb94a6d8d16b7ecc92"
