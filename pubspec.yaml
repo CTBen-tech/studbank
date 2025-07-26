@@ -37,6 +37,8 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   http: ^0.13.4
   uuid: ^4.0.0
+  intl_phone_field: ^3.2.0
+
 
   fl_chart: ^0.68.0
   english_words: ^4.0.0
