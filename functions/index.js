@@ -2,14 +2,13 @@ const functions = require("firebase-functions");
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
-const fetch = require("node-fetch");
 const base64 = require("base-64");
 
 admin.initializeApp();
 const app = express();
 app.use(cors({ origin: true }));
 
-// Load your secrets securely from environment config
+// Load secrets from Firebase config
 const momoApiUserId = functions.config().momo.apiuserid;
 const momoApiKey = functions.config().momo.apikey;
 const momoSubscriptionKey = functions.config().momo.subscriptionkey;
@@ -30,7 +29,7 @@ app.get("/get-momo-token", async (req, res) => {
       body: JSON.stringify({})
     });
 
-    if (response.status === 200) {
+    if (response.ok) {
       const data = await response.json();
       res.json({ access_token: data.access_token });
     } else {
@@ -44,4 +43,5 @@ app.get("/get-momo-token", async (req, res) => {
   }
 });
 
+// ✅ Only use v1-compatible onRequest
 exports.api = functions.https.onRequest(app);
