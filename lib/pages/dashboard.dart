@@ -1,4 +1,3 @@
-// File: C:\Users\BENJA\Desktop\flutter project recess\studbank\studbank\lib\pages\dashboard.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +9,7 @@ class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
   @override
-  DashboardPageState createState() => DashboardPageState(); // Public state class
+  DashboardPageState createState() => DashboardPageState();
 }
 
 class DashboardPageState extends State<DashboardPage> {
@@ -20,7 +19,7 @@ class DashboardPageState extends State<DashboardPage> {
   bool _isLoading = false;
   String? _errorMessage;
   final User? user = FirebaseAuth.instance.currentUser;
-  String _selectedPhoneNumber = ''; // Store complete phone number with country code
+  String _selectedPhoneNumber = '';
 
   @override
   void initState() {
@@ -135,7 +134,7 @@ class DashboardPageState extends State<DashboardPage> {
         completed = true;
       }
     }
-    if (mounted && !completed) {
+    if (mounted) {
       setState(() {
         _isLoading = false;
       });
@@ -182,11 +181,11 @@ class DashboardPageState extends State<DashboardPage> {
             return false;
           }
 
-          final momoSuccess = await MomoService.transfer(
+          final momoSuccess = await MomoService.requestToPay(
             amount: amount,
             currency: 'UGX',
             externalId: externalId,
-            payeeMobile: phone,
+            payerMobile: phone,
             payerMessage: 'Withdrawal from StudBank',
             payeeNote: 'Withdrawal for ${user!.email}',
           );
@@ -243,7 +242,7 @@ class DashboardPageState extends State<DashboardPage> {
         completed = true;
       }
     }
-    if (mounted && !completed) {
+    if (mounted) {
       setState(() {
         _isLoading = false;
       });
@@ -262,10 +261,9 @@ class DashboardPageState extends State<DashboardPage> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              final navigatorContext = context;
               await FirebaseAuth.instance.signOut();
               if (mounted) {
-                Navigator.pushReplacementNamed(navigatorContext, '/login');
+                Navigator.pushReplacementNamed(context, '/login');
               }
             },
           ),
@@ -457,7 +455,9 @@ class DashboardPageState extends State<DashboardPage> {
                               child: Text(
                                 _errorMessage!,
                                 style: TextStyle(
-                                  color: _errorMessage!.contains('successful') ? Colors.green : Colors.redAccent,
+                                  color: _errorMessage!.toLowerCase().contains('successful')
+                                      ? Colors.green
+                                      : Colors.redAccent,
                                   fontSize: 16,
                                 ),
                               ),
