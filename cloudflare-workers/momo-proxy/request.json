@@ -1,0 +1,9 @@
+{
+  "amount": "1000",
+  "currency": "EUR",
+  "externalId": "53653403-3c46-4ec3-b12a-1da38ffb1176",
+  "payerMobile": "+256781234567",
+  "payerMessage": "Payment for X",
+  "payeeNote": "Thanks",
+  "accessToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSMjU2In0.eyJjbGllbnRJZCI6ImMwMDE1MGI2LTA3ZDctNGQ4My1iNzFkLTViZTlhODU1YTJhMSIsImV4cGlyZXMiOiIyMDI1LTA3LTI2VDIzOjA5OjU5LjA3OCIsInNlc3Npb25JZCI6ImJlNGQzZjliLWQ5ZDMtNDE4MS04YTUxLWQwMDUwMDA0MjYzYiJ9.kAzyqPxusmaoSJhkURjxatG9jYcqdhrTaCo1QV9iIwrcmyQD762t0egPqheBAHQrxpQ_tXB4J2fkY5mbPgNZv36N2Mp2J-N17CINMSmWvgjhyKbPSSoCN9wHUn9_JHoSqIO_2yls_nbJFjiX-JFCq1Xs7OmtoA98neonCi1PdlXHMPLgL_kRvYTVVikyWbCfUAazazu8xqEtaZSICEPsBmPk5xUy7W5MT6cK3WPDrjObyS_aPpMzlTz_XgQcU9BUGVu5YgKnejESrGZFULJbP5-KB6jWP2O6gZin-LM_h8vT0UIpEfxt9cMOqNKOLLI4_eGYHNmSh1pkFNcp4XEZpw"
+}
