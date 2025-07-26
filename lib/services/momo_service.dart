@@ -1,9 +1,11 @@
 // File: C:\Users\BENJA\Desktop\flutter project recess\studbank\studbank\lib\services\momo_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MomoService {
   static const String _baseUrl = 'https://momo-proxy.studbank.workers.dev';
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   static Future<String?> getAccessToken() async {
     int retries = 3;
@@ -16,6 +18,7 @@ class MomoService {
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({}),
         );
+        print('Token response: ${response.statusCode}, ${response.body}');
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (data['access_token'] != null) {
@@ -58,6 +61,16 @@ class MomoService {
       print('No access token for requestToPay');
       throw Exception('Failed to obtain access token');
     }
+
+    // Validate inputs
+    if (!RegExp(r'^\+\d{10,15}$').hasMatch(payerMobile)) {
+      throw Exception('Invalid phone number format. Use a valid number with country code (e.g., +256712345678).');
+    }
+    final amountValue = double.tryParse(amount);
+    if (amountValue == null || amountValue < 100 || amountValue > 1000000) {
+      throw Exception('Amount must be between UGX 100 and UGX 1,000,000.');
+    }
+
     int retries = 3;
     int attempt = 1;
     while (attempt <= retries) {
@@ -65,19 +78,27 @@ class MomoService {
         print('Attempting requestToPay (attempt $attempt/$retries)...');
         final response = await http.post(
           Uri.parse('$_baseUrl/requestToPay'),
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+            'X-Reference-Id': externalId,
+            'Ocp-Apim-Subscription-Key': 'YOUR_SUBSCRIPTION_KEY', // Replace with actual key
+          },
           body: jsonEncode({
-            'amount': amount,
+            'amount': amountValue.toStringAsFixed(0), // MoMo expects integer amounts
             'currency': currency,
             'externalId': externalId,
-            'payerMobile': payerMobile,
+            'payer': {
+              'partyIdType': 'MSISDN',
+              'partyId': payerMobile,
+            },
             'payerMessage': payerMessage,
             'payeeNote': payeeNote,
-            'accessToken': token,
           }),
         );
         print('Request to Pay response: ${response.statusCode}, ${response.body}');
         if (response.statusCode == 202) {
+          await _saveTransaction(externalId, amount, payerMobile, 'requestToPay');
           final status = await _checkTransactionStatus(externalId, token);
           return status == 'SUCCESSFUL';
         }
@@ -114,6 +135,16 @@ class MomoService {
       print('No access token for transfer');
       throw Exception('Failed to obtain access token');
     }
+
+    // Validate inputs
+    if (!RegExp(r'^\+\d{10,15}$').hasMatch(payeeMobile)) {
+      throw Exception('Invalid phone number format. Use a valid number with country code (e.g., +256712345678).');
+    }
+    final amountValue = double.tryParse(amount);
+    if (amountValue == null || amountValue < 100 || amountValue > 1000000) {
+      throw Exception('Amount must be between UGX 100 and UGX 1,000,000.');
+    }
+
     int retries = 3;
     int attempt = 1;
     while (attempt <= retries) {
@@ -121,19 +152,27 @@ class MomoService {
         print('Attempting transfer (attempt $attempt/$retries)...');
         final response = await http.post(
           Uri.parse('$_baseUrl/transfer'),
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+            'X-Reference-Id': externalId,
+            'Ocp-Apim-Subscription-Key': 'YOUR_SUBSCRIPTION_KEY', // Replace with actual key
+          },
           body: jsonEncode({
-            'amount': amount,
+            'amount': amountValue.toStringAsFixed(0), // MoMo expects integer amounts
             'currency': currency,
             'externalId': externalId,
-            'payeeMobile': payeeMobile,
+            'payee': {
+              'partyIdType': 'MSISDN',
+              'partyId': payeeMobile,
+            },
             'payerMessage': payerMessage,
             'payeeNote': payeeNote,
-            'accessToken': token,
           }),
         );
         print('Transfer response: ${response.statusCode}, ${response.body}');
         if (response.statusCode == 202) {
+          await _saveTransaction(externalId, amount, payeeMobile, 'transfer');
           final status = await _checkTransactionStatus(externalId, token, isDisbursement: true);
           return status == 'SUCCESSFUL';
         }
@@ -165,7 +204,10 @@ class MomoService {
         print('Checking transaction status (attempt $attempt/$retries)...');
         final response = await http.get(
           Uri.parse('$_baseUrl/checkTransactionStatus?externalId=$externalId&accessToken=$token&isDisbursement=$isDisbursement'),
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
         );
         print('Status check response: ${response.statusCode}, ${response.body}');
         if (response.statusCode == 200) {
@@ -195,5 +237,16 @@ class MomoService {
     }
     print('Transaction status pending after retries: $externalId');
     return 'FAILED';
+  }
+
+  static Future<void> _saveTransaction(String externalId, String amount, String mobile, String type) async {
+    await _firestore.collection('transactions').doc(externalId).set({
+      'externalId': externalId,
+      'amount': amount,
+      'mobile': mobile,
+      'type': type,
+      'status': 'initiated',
+      'timestamp': FieldValue.serverTimestamp(),
+    });
   }
 }

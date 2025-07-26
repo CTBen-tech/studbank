@@ -8,6 +8,8 @@ import 'pages/login.dart';
 import 'pages/dashboard.dart';
 import 'pages/signup.dart';
 import 'pages/forgot_password.dart';
+// 🔽 OPTIONAL: Add this import if you want to test payment
+import 'screens/payment_screen.dart'; // You must create this if not yet
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +26,6 @@ void main() async {
         FirebaseFirestore.instance.settings = const Settings(
           persistenceEnabled: true, // Enable offline persistence
           cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED, // Unlimited cache
-          // Explicitly set host for debugging network issues
           host: 'firestore.googleapis.com',
           sslEnabled: true,
           ignoreUndefinedProperties: true,
@@ -80,7 +81,6 @@ class MyApp extends StatelessWidget {
                   const Text('Authentication error. Please try again.'),
                   ElevatedButton(
                     onPressed: () {
-                      // Retry authentication or redirect to login
                       Navigator.pushReplacementNamed(context, '/login');
                     },
                     child: const Text('Retry'),
@@ -97,6 +97,8 @@ class MyApp extends StatelessWidget {
         '/dashboard': (context) => const DashboardPage(),
         '/signup': (context) => const SignUpPage(),
         '/forgot-password': (context) => const ForgotPasswordPage(),
+        // 🔽 You can use this to test payment
+        '/payment': (context) => PaymentScreen(),
       },
     );
   }
