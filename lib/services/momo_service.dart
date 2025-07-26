@@ -1,48 +1,33 @@
-// File: C:\Users\BENJA\Desktop\flutter project recess\studbank\studbank\lib\services\momo_service.dart
+// File: momo_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:uuid/uuid.dart';
 
 class MomoService {
   static const String _baseUrl = 'https://momo-proxy.studbank.workers.dev';
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const List<String> supportedCurrencies = ['UGX'];
+  static final _uuid = Uuid();
 
   static Future<String?> getAccessToken() async {
     int retries = 3;
-    int attempt = 1;
-    while (attempt <= retries) {
+    for (int attempt = 1; attempt <= retries; attempt++) {
       try {
-        print('Attempting to get MoMo token (attempt $attempt/$retries)...');
         final response = await http.post(
           Uri.parse('$_baseUrl/getMomoToken'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({}),
         );
-        print('Token response: ${response.statusCode}, ${response.body}');
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
-          if (data['access_token'] != null) {
-            print('Token received: ${data['access_token']}');
-            return data['access_token'];
-          }
-          print('No access_token in response: ${response.body}');
-          return null;
+          return data['access_token'];
         }
-        print('Token request failed: ${response.statusCode}, ${response.body}');
         if (response.statusCode >= 500 && attempt < retries) {
           await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
         }
-        return null;
-      } catch (e) {
-        print('Error generating token (attempt $attempt/$retries): $e');
-        if (e.toString().contains('network') && attempt < retries) {
-          await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
-        }
-        return null;
+      } catch (_) {
+        await Future.delayed(Duration(seconds: 2));
       }
     }
     return null;
@@ -50,44 +35,43 @@ class MomoService {
 
   static Future<bool> requestToPay({
     required String amount,
-    required String currency,
-    required String externalId,
+    String currency = 'UGX',
+    String? externalId,
     required String payerMobile,
     required String payerMessage,
     required String payeeNote,
   }) async {
     final token = await getAccessToken();
-    if (token == null) {
-      print('No access token for requestToPay');
-      throw Exception('Failed to obtain access token');
+    if (token == null) throw Exception('Failed to obtain access token');
+
+    // Validate mobile number
+    if (!RegExp(r'^\+\d{10,15}$').hasMatch(payerMobile)) {
+      throw Exception('Invalid phone number format. Use +256 format.');
     }
 
-    // Validate inputs
-    if (!RegExp(r'^\+\d{10,15}$').hasMatch(payerMobile)) {
-      throw Exception('Invalid phone number format. Use a valid number with country code (e.g., +256712345678).');
-    }
     final amountValue = double.tryParse(amount);
     if (amountValue == null || amountValue < 100 || amountValue > 1000000) {
       throw Exception('Amount must be between UGX 100 and UGX 1,000,000.');
     }
 
+    final refId = externalId ?? _uuid.v4();
+    final cur = supportedCurrencies.contains(currency.toUpperCase()) ? currency.toUpperCase() : 'UGX';
+
     int retries = 3;
-    int attempt = 1;
-    while (attempt <= retries) {
+    for (int attempt = 1; attempt <= retries; attempt++) {
       try {
-        print('Attempting requestToPay (attempt $attempt/$retries)...');
         final response = await http.post(
           Uri.parse('$_baseUrl/requestToPay'),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $token',
-            'X-Reference-Id': externalId,
-            'Ocp-Apim-Subscription-Key': 'YOUR_SUBSCRIPTION_KEY', // Replace with actual key
+            'X-Reference-Id': refId,
+            'Ocp-Apim-Subscription-Key': '2c28040e2be54efb94a6d8d16b7ecc92', // replace this
           },
           body: jsonEncode({
-            'amount': amountValue.toStringAsFixed(0), // MoMo expects integer amounts
-            'currency': currency,
-            'externalId': externalId,
+            'amount': amountValue.toStringAsFixed(0),
+            'currency': cur,
+            'externalId': refId,
             'payer': {
               'partyIdType': 'MSISDN',
               'partyId': payerMobile,
@@ -96,27 +80,33 @@ class MomoService {
             'payeeNote': payeeNote,
           }),
         );
-        print('Request to Pay response: ${response.statusCode}, ${response.body}');
+
         if (response.statusCode == 202) {
-          await _saveTransaction(externalId, amount, payerMobile, 'requestToPay');
-          final status = await _checkTransactionStatus(externalId, token);
+          await _saveTransaction(refId, amount, payerMobile, 'requestToPay');
+          final status = await _checkTransactionStatus(refId, token);
           return status == 'SUCCESSFUL';
-        }
-        if (response.statusCode >= 500 && attempt < retries) {
-          print('Server error, retrying: ${response.statusCode}');
+        } else if (response.statusCode == 409 &&
+                   response.body.contains('RESOURCE_ALREADY_EXIST') &&
+                   attempt < retries) {
+          // regenerate referenceId and retry
+          print('Duplicated reference ID, retrying...');
           await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
+          return await requestToPay(
+            amount: amount,
+            currency: currency,
+            externalId: _uuid.v4(), // new id
+            payerMobile: payerMobile,
+            payerMessage: payerMessage,
+            payeeNote: payeeNote,
+          );
         }
         throw Exception('Request to Pay failed: ${response.statusCode}, ${response.body}');
       } catch (e) {
-        print('Request to Pay error (attempt $attempt/$retries): $e');
         if (e.toString().contains('network') && attempt < retries) {
           await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
+        } else {
+          throw Exception('Request to Pay error: $e');
         }
-        throw Exception('Request to Pay failed: $e');
       }
     }
     return false;
@@ -124,44 +114,42 @@ class MomoService {
 
   static Future<bool> transfer({
     required String amount,
-    required String currency,
-    required String externalId,
+    String currency = 'UGX',
+    String? externalId,
     required String payeeMobile,
     required String payerMessage,
     required String payeeNote,
   }) async {
     final token = await getAccessToken();
-    if (token == null) {
-      print('No access token for transfer');
-      throw Exception('Failed to obtain access token');
+    if (token == null) throw Exception('Failed to obtain access token');
+
+    if (!RegExp(r'^\+\d{10,15}$').hasMatch(payeeMobile)) {
+      throw Exception('Invalid phone number format. Use +256 format.');
     }
 
-    // Validate inputs
-    if (!RegExp(r'^\+\d{10,15}$').hasMatch(payeeMobile)) {
-      throw Exception('Invalid phone number format. Use a valid number with country code (e.g., +256712345678).');
-    }
     final amountValue = double.tryParse(amount);
     if (amountValue == null || amountValue < 100 || amountValue > 1000000) {
       throw Exception('Amount must be between UGX 100 and UGX 1,000,000.');
     }
 
+    final refId = externalId ?? _uuid.v4();
+    final cur = supportedCurrencies.contains(currency.toUpperCase()) ? currency.toUpperCase() : 'UGX';
+
     int retries = 3;
-    int attempt = 1;
-    while (attempt <= retries) {
+    for (int attempt = 1; attempt <= retries; attempt++) {
       try {
-        print('Attempting transfer (attempt $attempt/$retries)...');
         final response = await http.post(
           Uri.parse('$_baseUrl/transfer'),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $token',
-            'X-Reference-Id': externalId,
-            'Ocp-Apim-Subscription-Key': 'YOUR_SUBSCRIPTION_KEY', // Replace with actual key
+            'X-Reference-Id': refId,
+            'Ocp-Apim-Subscription-Key': 'YOUR_SUBSCRIPTION_KEY', // replace this
           },
           body: jsonEncode({
-            'amount': amountValue.toStringAsFixed(0), // MoMo expects integer amounts
-            'currency': currency,
-            'externalId': externalId,
+            'amount': amountValue.toStringAsFixed(0),
+            'currency': cur,
+            'externalId': refId,
             'payee': {
               'partyIdType': 'MSISDN',
               'partyId': payeeMobile,
@@ -170,46 +158,32 @@ class MomoService {
             'payeeNote': payeeNote,
           }),
         );
-        print('Transfer response: ${response.statusCode}, ${response.body}');
+
         if (response.statusCode == 202) {
-          await _saveTransaction(externalId, amount, payeeMobile, 'transfer');
-          final status = await _checkTransactionStatus(externalId, token, isDisbursement: true);
+          await _saveTransaction(refId, amount, payeeMobile, 'transfer');
+          final status = await _checkTransactionStatus(refId, token, isDisbursement: true);
           return status == 'SUCCESSFUL';
-        }
-        if (response.statusCode >= 500 && attempt < retries) {
-          print('Server error, retrying: ${response.statusCode}');
-          await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
         }
         throw Exception('Transfer failed: ${response.statusCode}, ${response.body}');
       } catch (e) {
-        print('Transfer error (attempt $attempt/$retries): $e');
         if (e.toString().contains('network') && attempt < retries) {
           await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
+        } else {
+          throw Exception('Transfer error: $e');
         }
-        throw Exception('Transfer failed: $e');
       }
     }
     return false;
   }
 
   static Future<String?> _checkTransactionStatus(String externalId, String token, {bool isDisbursement = false}) async {
-    int retries = 3;
-    int attempt = 1;
-    while (attempt <= retries) {
+    for (int attempt = 1; attempt <= 3; attempt++) {
       try {
-        print('Checking transaction status (attempt $attempt/$retries)...');
         final response = await http.get(
           Uri.parse('$_baseUrl/checkTransactionStatus?externalId=$externalId&accessToken=$token&isDisbursement=$isDisbursement'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
+          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
         );
-        print('Status check response: ${response.statusCode}, ${response.body}');
+
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           final status = data['status'];
@@ -217,25 +191,11 @@ class MomoService {
             return status;
           }
         }
-        if (response.statusCode >= 500 && attempt < retries) {
-          print('Server error, retrying status check: ${response.statusCode}');
-          await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
-        }
         await Future.delayed(const Duration(seconds: 5));
-        attempt++;
-      } catch (e) {
-        print('Error checking transaction status (attempt $attempt/$retries): $e');
-        if (e.toString().contains('network') && attempt < retries) {
-          await Future.delayed(Duration(seconds: attempt * 2));
-          attempt++;
-          continue;
-        }
-        return 'FAILED';
+      } catch (_) {
+        await Future.delayed(const Duration(seconds: 2));
       }
     }
-    print('Transaction status pending after retries: $externalId');
     return 'FAILED';
   }
 
