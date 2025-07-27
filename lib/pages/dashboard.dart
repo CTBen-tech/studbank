@@ -49,6 +49,8 @@ class DashboardPageState extends State<DashboardPage> {
 
   Future<void> _addFunds() async {
     if (!_formKey.currentState!.validate()) return;
+    _formKey.currentState!.save(); // 👈 Ensure phone number is captured
+
     if (user == null) {
       if (!mounted) return;
       setState(() {
@@ -62,87 +64,73 @@ class DashboardPageState extends State<DashboardPage> {
       _errorMessage = null;
     });
 
-    int retries = 3;
-    int attempt = 1;
-    bool completed = false;
-    while (attempt <= retries && !completed) {
-      try {
-        debugPrint('Attempting deposit (attempt $attempt/$retries)...');
-        final amount = _amountController.text;
-        final phone = _selectedPhoneNumber;
-        final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      final amount = _amountController.text.trim();
+      // Fallback if _selectedPhoneNumber was not set by onSaved
+      final rawPhone = _selectedPhoneNumber.isNotEmpty
+          ? _selectedPhoneNumber
+          : _phoneController.text;
+      final phone = rawPhone.replaceAll(RegExp(r'[ +]'), ''); // Remove + and spaces
+      final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
 
-        final success = await MomoService.requestToPay(
-          amount: amount,
-          currency: 'UGX',
-          externalId: externalId,
-          payerMobile: phone,
-          payerMessage: 'Deposit to StudBank',
-          payeeNote: 'Deposit for ${user!.email}',
-        );
+      final success = await MomoService.requestToPay(
+        amount: amount,
+        currency: 'UGX',
+        externalId: externalId,
+        payerMobile: phone,
+        payerMessage: 'Deposit to StudBank',
+        payeeNote: 'Deposit for ${user!.email}',
+      );
 
-        if (!mounted) return;
-        if (success) {
-          final userDoc = FirebaseFirestore.instance.collection('users').doc(user!.uid);
-          await FirebaseFirestore.instance.runTransaction((transaction) async {
-            final snapshot = await transaction.get(userDoc);
-            if (!snapshot.exists) throw Exception('User document not found');
-            transaction.update(userDoc, {
-              'balance': FieldValue.increment(double.parse(amount)),
-            });
-            transaction.set(
-              userDoc.collection('transactions').doc(),
-              {
-                'type': 'deposit',
-                'amount': double.parse(amount),
-                'timestamp': FieldValue.serverTimestamp(),
-                'externalId': externalId,
-                'status': 'SUCCESSFUL',
-              },
-            );
+      if (!mounted) return;
+      if (success) {
+        final userDoc = FirebaseFirestore.instance.collection('users').doc(user!.uid);
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final snapshot = await transaction.get(userDoc);
+          if (!snapshot.exists) throw Exception('User document not found');
+          transaction.update(userDoc, {
+            'balance': FieldValue.increment(double.parse(amount)),
           });
-          if (!mounted) return;
-          setState(() {
-            _errorMessage = 'Deposit successful!';
-            _amountController.clear();
-            _phoneController.clear();
-          });
-        } else {
-          if (!mounted) return;
-          setState(() {
-            _errorMessage = 'Deposit failed. Please verify your phone number and try again.';
-          });
-        }
-        completed = true;
-      } catch (e) {
-        debugPrint('Deposit error (attempt $attempt/$retries): $e');
-        String errorMessage = 'Error processing deposit. Please try again.';
-        if (e.toString().contains('network')) {
-          errorMessage = 'Network error. Please check your internet connection and try again.';
-          if (attempt < retries) {
-            await Future.delayed(Duration(seconds: attempt * 2));
-            attempt++;
-            continue;
-          }
-        } else if (e.toString().contains('permission-denied')) {
-          errorMessage = 'Permission denied. Contact support for assistance.';
-        }
-        if (!mounted) return;
-        setState(() {
-          _errorMessage = errorMessage;
+          transaction.set(
+            userDoc.collection('transactions').doc(),
+            {
+              'type': 'deposit',
+              'amount': double.parse(amount),
+              'timestamp': FieldValue.serverTimestamp(),
+              'externalId': externalId,
+              'status': 'SUCCESSFUL',
+            },
+          );
         });
-        completed = true;
+        setState(() {
+          _errorMessage = 'Deposit successful!';
+          _amountController.clear();
+          _phoneController.clear();
+          _selectedPhoneNumber = '';
+        });
+      } else {
+        setState(() {
+          _errorMessage = 'Deposit failed. Please verify your phone number and try again.';
+        });
       }
-    }
-    if (mounted) {
+    } catch (e) {
+      debugPrint('Deposit error: $e');
       setState(() {
-        _isLoading = false;
+        _errorMessage = 'Error processing deposit. ${e.toString()}';
       });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _withdrawFunds() async {
     if (!_formKey.currentState!.validate()) return;
+    _formKey.currentState!.save(); // 👈 Ensure phone number is captured
+
     if (user == null) {
       if (!mounted) return;
       setState(() {
@@ -156,96 +144,65 @@ class DashboardPageState extends State<DashboardPage> {
       _errorMessage = null;
     });
 
-    int retries = 3;
-    int attempt = 1;
-    bool completed = false;
-    while (attempt <= retries && !completed) {
-      try {
-        debugPrint('Attempting withdrawal (attempt $attempt/$retries)...');
-        final amount = _amountController.text;
-        final phone = _selectedPhoneNumber;
-        final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
-        final userDoc = FirebaseFirestore.instance.collection('users').doc(user!.uid);
+    try {
+      final amount = _amountController.text.trim();
+      final rawPhone = _selectedPhoneNumber.isNotEmpty
+          ? _selectedPhoneNumber
+          : _phoneController.text;
+      final phone = rawPhone.replaceAll(RegExp(r'[ +]'), '');
+      final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
 
-        final success = await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final success = await MomoService.transfer(
+        amount: amount,
+        currency: 'UGX',
+        externalId: externalId,
+        payeeMobile: phone,
+        payerMessage: 'Withdrawal from StudBank',
+        payeeNote: 'Withdrawal for ${user!.email}',
+      );
+
+      if (!mounted) return;
+      if (success) {
+        final userDoc = FirebaseFirestore.instance.collection('users').doc(user!.uid);
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
           final snapshot = await transaction.get(userDoc);
           if (!snapshot.exists) throw Exception('User document not found');
-          final currentBalance = snapshot.data()?['balance']?.toDouble() ?? 0.0;
-          final withdrawAmount = double.parse(amount);
-
-          if (withdrawAmount > currentBalance) {
-            if (!mounted) return false;
-            setState(() {
-              _errorMessage = 'Insufficient balance. Please add funds or reduce the amount.';
-            });
-            return false;
-          }
-
-          final momoSuccess = await MomoService.requestToPay(
-            amount: amount,
-            currency: 'UGX',
-            externalId: externalId,
-            payerMobile: phone,
-            payerMessage: 'Withdrawal from StudBank',
-            payeeNote: 'Withdrawal for ${user!.email}',
+          transaction.update(userDoc, {
+            'balance': FieldValue.increment(-double.parse(amount)),
+          });
+          transaction.set(
+            userDoc.collection('transactions').doc(),
+            {
+              'type': 'withdrawal',
+              'amount': double.parse(amount),
+              'timestamp': FieldValue.serverTimestamp(),
+              'externalId': externalId,
+              'status': 'SUCCESSFUL',
+            },
           );
-
-          if (momoSuccess) {
-            transaction.update(userDoc, {
-              'balance': FieldValue.increment(-withdrawAmount),
-            });
-            transaction.set(
-              userDoc.collection('transactions').doc(),
-              {
-                'type': 'withdrawal',
-                'amount': withdrawAmount,
-                'timestamp': FieldValue.serverTimestamp(),
-                'externalId': externalId,
-                'status': 'SUCCESSFUL',
-              },
-            );
-            return true;
-          }
-          return false;
         });
-
-        if (!mounted) return;
-        if (success) {
-          setState(() {
-            _errorMessage = 'Withdrawal successful!';
-            _amountController.clear();
-            _phoneController.clear();
-          });
-        } else if (_errorMessage == null) {
-          setState(() {
-            _errorMessage = 'Withdrawal failed. Please verify your phone number and try again.';
-          });
-        }
-        completed = true;
-      } catch (e) {
-        debugPrint('Withdrawal error (attempt $attempt/$retries): $e');
-        String errorMessage = 'Error processing withdrawal. Please try again.';
-        if (e.toString().contains('network')) {
-          errorMessage = 'Network error. Please check your internet connection and try again.';
-          if (attempt < retries) {
-            await Future.delayed(Duration(seconds: attempt * 2));
-            attempt++;
-            continue;
-          }
-        } else if (e.toString().contains('permission-denied')) {
-          errorMessage = 'Permission denied. Contact support for assistance.';
-        }
-        if (!mounted) return;
         setState(() {
-          _errorMessage = errorMessage;
+          _errorMessage = 'Withdrawal successful!';
+          _amountController.clear();
+          _phoneController.clear();
+          _selectedPhoneNumber = '';
         });
-        completed = true;
+      } else {
+        setState(() {
+          _errorMessage = 'Withdrawal failed. Please verify your phone number and try again.';
+        });
       }
-    }
-    if (mounted) {
+    } catch (e) {
+      debugPrint('Withdrawal error: $e');
       setState(() {
-        _isLoading = false;
+        _errorMessage = 'Error processing withdrawal. ${e.toString()}';
       });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -277,193 +234,91 @@ class DashboardPageState extends State<DashboardPage> {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (snapshot.hasError) {
-                  debugPrint('Firestore error: ${snapshot.error}');
-                  String errorMessage = 'Error loading data. Please try again.';
-                  if (snapshot.error.toString().contains('network')) {
-                    errorMessage = 'Network error. Please check your internet connection and try again.';
-                  } else if (snapshot.error.toString().contains('permission-denied')) {
-                    errorMessage = 'Permission denied. Contact support for assistance.';
-                  }
-                  return Center(child: Text(errorMessage));
-                }
-                if (!snapshot.hasData || !snapshot.data!.exists) {
-                  return const Center(child: Text('User data not found. Please log in again.'));
+                if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
+                  return const Center(child: Text('Error loading user data.'));
                 }
 
                 final data = snapshot.data!.data() as Map<String, dynamic>;
                 final balance = data['balance']?.toDouble() ?? 0.0;
                 final name = data['name'] ?? 'User';
-                final uid = data['uid'] ?? 'N/A';
 
-                return SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Welcome, $name',
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Account ID: $uid',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Balance: UGX ${balance.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          TextFormField(
-                            key: const ValueKey('amount'),
-                            controller: _amountController,
-                            decoration: InputDecoration(
-                              labelText: 'Amount (UGX)',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              prefixIcon: const Icon(Icons.money, color: Colors.blue),
-                              filled: true,
-                              fillColor: Colors.white,
-                              errorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.redAccent),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.blue, width: 2),
-                              ),
-                            ),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter an amount';
-                              }
-                              final amount = double.tryParse(value);
-                              if (amount == null || amount <= 0) {
-                                return 'Please enter a valid amount greater than 0';
-                              }
-                              if (value.contains('.') && value.split('.')[1].length > 2) {
-                                return 'Amount cannot have more than 2 decimal places';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          IntlPhoneField(
-                            key: const ValueKey('phone'),
-                            controller: _phoneController,
-                            decoration: InputDecoration(
-                              labelText: 'Phone Number',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              filled: true,
-                              fillColor: Colors.white,
-                              errorBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.redAccent),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.blue, width: 2),
-                              ),
-                            ),
-                            initialCountryCode: 'UG',
-                            onChanged: (phone) {
+                return Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Welcome, $name', style: Theme.of(context).textTheme.headlineSmall),
+                        const SizedBox(height: 8),
+                        Text('Balance: UGX ${balance.toStringAsFixed(2)}',
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _amountController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: 'Amount (UGX)'),
+                          validator: (value) {
+                            final amount = double.tryParse(value ?? '');
+                            if (amount == null || amount <= 0) {
+                              return 'Enter a valid amount';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        IntlPhoneField(
+                          controller: _phoneController,
+                          decoration: const InputDecoration(labelText: 'Phone Number'),
+                          initialCountryCode: 'UG',
+                          onChanged: (phone) {
+                            _selectedPhoneNumber = phone.completeNumber;
+                          },
+                          onSaved: (phone) {
+                            if (phone != null) {
                               _selectedPhoneNumber = phone.completeNumber;
-                            },
-                            validator: (phone) {
-                              if (phone == null || phone.number.isEmpty) {
-                                return 'Please select a country code and enter a phone number';
-                              }
-                              if (!phone.isValidNumber()) {
-                                return 'Please enter a valid phone number for the selected country';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 20),
-                          _isLoading
-                              ? const Center(child: CircularProgressIndicator(color: Colors.blue))
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                                        child: ElevatedButton(
-                                          onPressed: _addFunds,
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.blue.shade700,
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(vertical: 16),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12),
-                                            ),
-                                            elevation: 4,
-                                          ),
-                                          child: const Text(
-                                            'Add Funds',
-                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                          ),
-                                        ),
-                                      ),
+                            }
+                          },
+                          validator: (phone) {
+                            if (phone == null || phone.number.isEmpty) {
+                              return 'Please enter a phone number';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        _isLoading
+                            ? const Center(child: CircularProgressIndicator())
+                            : Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: _addFunds,
+                                      child: const Text('Add Funds'),
                                     ),
-                                    Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                                        child: ElevatedButton(
-                                          onPressed: _withdrawFunds,
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.blue.shade700,
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(vertical: 16),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12),
-                                            ),
-                                            elevation: 4,
-                                          ),
-                                          child: const Text(
-                                            'Withdraw Funds',
-                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                          ),
-                                        ),
-                                      ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: _withdrawFunds,
+                                      child: const Text('Withdraw Funds'),
                                     ),
-                                  ],
-                                ),
-                          if (_errorMessage != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 16.0),
-                              child: Text(
-                                _errorMessage!,
-                                style: TextStyle(
-                                  color: _errorMessage!.toLowerCase().contains('successful')
-                                      ? Colors.green
-                                      : Colors.redAccent,
-                                  fontSize: 16,
-                                ),
+                                  ),
+                                ],
+                              ),
+                        if (_errorMessage != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 16.0),
+                            child: Text(
+                              _errorMessage!,
+                              style: TextStyle(
+                                color: _errorMessage!.toLowerCase().contains('successful')
+                                    ? Colors.green
+                                    : Colors.red,
                               ),
                             ),
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
                   ),
                 );

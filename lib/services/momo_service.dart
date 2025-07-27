@@ -44,9 +44,9 @@ class MomoService {
     final token = await getAccessToken();
     if (token == null) throw Exception('Failed to obtain access token');
 
-    // Validate mobile number
+    // Validate format: must start with + and be 10–15 digits after +
     if (!RegExp(r'^\+\d{10,15}$').hasMatch(payerMobile)) {
-      throw Exception('Invalid phone number format. Use +256 format.');
+      throw Exception('Invalid phone number format. Use +256XXXXXXXXX format.');
     }
 
     final amountValue = double.tryParse(amount);
@@ -56,6 +56,7 @@ class MomoService {
 
     final refId = externalId ?? _uuid.v4();
     final cur = supportedCurrencies.contains(currency.toUpperCase()) ? currency.toUpperCase() : 'UGX';
+    final cleanMobile = payerMobile.replaceAll('+', ''); // 👈 Remove the +
 
     int retries = 3;
     for (int attempt = 1; attempt <= retries; attempt++) {
@@ -74,7 +75,7 @@ class MomoService {
             'externalId': refId,
             'payer': {
               'partyIdType': 'MSISDN',
-              'partyId': payerMobile,
+              'partyId': cleanMobile,
             },
             'payerMessage': payerMessage,
             'payeeNote': payeeNote,
@@ -86,15 +87,13 @@ class MomoService {
           final status = await _checkTransactionStatus(refId, token);
           return status == 'SUCCESSFUL';
         } else if (response.statusCode == 409 &&
-                   response.body.contains('RESOURCE_ALREADY_EXIST') &&
-                   attempt < retries) {
-          // regenerate referenceId and retry
-          print('Duplicated reference ID, retrying...');
+            response.body.contains('RESOURCE_ALREADY_EXIST') &&
+            attempt < retries) {
           await Future.delayed(Duration(seconds: attempt * 2));
           return await requestToPay(
             amount: amount,
             currency: currency,
-            externalId: _uuid.v4(), // new id
+            externalId: _uuid.v4(),
             payerMobile: payerMobile,
             payerMessage: payerMessage,
             payeeNote: payeeNote,
@@ -124,7 +123,7 @@ class MomoService {
     if (token == null) throw Exception('Failed to obtain access token');
 
     if (!RegExp(r'^\+\d{10,15}$').hasMatch(payeeMobile)) {
-      throw Exception('Invalid phone number format. Use +256 format.');
+      throw Exception('Invalid phone number format. Use +256XXXXXXXXX format.');
     }
 
     final amountValue = double.tryParse(amount);
@@ -134,6 +133,7 @@ class MomoService {
 
     final refId = externalId ?? _uuid.v4();
     final cur = supportedCurrencies.contains(currency.toUpperCase()) ? currency.toUpperCase() : 'UGX';
+    final cleanMobile = payeeMobile.replaceAll('+', ''); // 👈 Remove the +
 
     int retries = 3;
     for (int attempt = 1; attempt <= retries; attempt++) {
@@ -152,7 +152,7 @@ class MomoService {
             'externalId': refId,
             'payee': {
               'partyIdType': 'MSISDN',
-              'partyId': payeeMobile,
+              'partyId': cleanMobile,
             },
             'payerMessage': payerMessage,
             'payeeNote': payeeNote,
@@ -181,7 +181,10 @@ class MomoService {
       try {
         final response = await http.get(
           Uri.parse('$_baseUrl/checkTransactionStatus?externalId=$externalId&accessToken=$token&isDisbursement=$isDisbursement'),
-          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
         );
 
         if (response.statusCode == 200) {
