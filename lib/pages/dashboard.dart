@@ -19,7 +19,7 @@ class DashboardPageState extends State<DashboardPage> {
   bool _isLoading = false;
   String? _errorMessage;
   final User? user = FirebaseAuth.instance.currentUser;
-  String _selectedPhoneNumber = '';
+  String _selectedPhoneNumber = ''; // This will hold the complete number from IntlPhoneField (e.g., +256XXXXXXXXX)
 
   @override
   void initState() {
@@ -48,8 +48,9 @@ class DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _addFunds() async {
+    // Validate the form, which will trigger onSaved for IntlPhoneField
     if (!_formKey.currentState!.validate()) return;
-    _formKey.currentState!.save(); // 👈 Ensure phone number is captured
+    _formKey.currentState!.save(); // Ensures _selectedPhoneNumber is updated from onSaved
 
     if (user == null) {
       if (!mounted) return;
@@ -66,18 +67,17 @@ class DashboardPageState extends State<DashboardPage> {
 
     try {
       final amount = _amountController.text.trim();
-      // Fallback if _selectedPhoneNumber was not set by onSaved
-      final rawPhone = _selectedPhoneNumber.isNotEmpty
-          ? _selectedPhoneNumber
-          : _phoneController.text;
-      final phone = rawPhone.replaceAll(RegExp(r'[ +]'), ''); // Remove + and spaces
+
+      debugPrint('Dashboard: Phone number being sent for Deposit: $_selectedPhoneNumber');
+
       final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
 
       final success = await MomoService.requestToPay(
         amount: amount,
-        currency: 'UGX',
+        // *** FIX APPLIED HERE: Changed currency from 'UGX' to 'EUR' ***
+        currency: 'EUR',
         externalId: externalId,
-        payerMobile: phone,
+        payerMobile: _selectedPhoneNumber, // Use the complete number directly
         payerMessage: 'Deposit to StudBank',
         payeeNote: 'Deposit for ${user!.email}',
       );
@@ -106,7 +106,7 @@ class DashboardPageState extends State<DashboardPage> {
           _errorMessage = 'Deposit successful!';
           _amountController.clear();
           _phoneController.clear();
-          _selectedPhoneNumber = '';
+          _selectedPhoneNumber = ''; // Clear for next input
         });
       } else {
         setState(() {
@@ -128,8 +128,9 @@ class DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _withdrawFunds() async {
+    // Validate the form, which will trigger onSaved for IntlPhoneField
     if (!_formKey.currentState!.validate()) return;
-    _formKey.currentState!.save(); // 👈 Ensure phone number is captured
+    _formKey.currentState!.save(); // Ensures _selectedPhoneNumber is updated from onSaved
 
     if (user == null) {
       if (!mounted) return;
@@ -146,17 +147,17 @@ class DashboardPageState extends State<DashboardPage> {
 
     try {
       final amount = _amountController.text.trim();
-      final rawPhone = _selectedPhoneNumber.isNotEmpty
-          ? _selectedPhoneNumber
-          : _phoneController.text;
-      final phone = rawPhone.replaceAll(RegExp(r'[ +]'), '');
+
+      debugPrint('Dashboard: Phone number being sent for Withdrawal: $_selectedPhoneNumber');
+
       final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
 
       final success = await MomoService.transfer(
         amount: amount,
-        currency: 'UGX',
+        // *** FIX APPLIED HERE: Changed currency from 'UGX' to 'EUR' ***
+        currency: 'EUR',
         externalId: externalId,
-        payeeMobile: phone,
+        payeeMobile: _selectedPhoneNumber, // Use the complete number directly
         payerMessage: 'Withdrawal from StudBank',
         payeeNote: 'Withdrawal for ${user!.email}',
       );
@@ -185,7 +186,7 @@ class DashboardPageState extends State<DashboardPage> {
           _errorMessage = 'Withdrawal successful!';
           _amountController.clear();
           _phoneController.clear();
-          _selectedPhoneNumber = '';
+          _selectedPhoneNumber = ''; // Clear for next input
         });
       } else {
         setState(() {
@@ -239,6 +240,8 @@ class DashboardPageState extends State<DashboardPage> {
                 }
 
                 final data = snapshot.data!.data() as Map<String, dynamic>;
+                // You might still display UGX in the UI balance for local context,
+                // but the backend transaction is now EUR in sandbox.
                 final balance = data['balance']?.toDouble() ?? 0.0;
                 final name = data['name'] ?? 'User';
 
@@ -251,13 +254,14 @@ class DashboardPageState extends State<DashboardPage> {
                       children: [
                         Text('Welcome, $name', style: Theme.of(context).textTheme.headlineSmall),
                         const SizedBox(height: 8),
-                        Text('Balance: UGX ${balance.toStringAsFixed(2)}',
+                        Text('Balance: UGX ${balance.toStringAsFixed(2)}', // Display as UGX if that's the local currency
                             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _amountController,
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: 'Amount (UGX)'),
+                          // You might want to update this label too if you want to reflect EUR in the UI
+                          decoration: const InputDecoration(labelText: 'Amount (EUR in Sandbox)'),
                           validator: (value) {
                             final amount = double.tryParse(value ?? '');
                             if (amount == null || amount <= 0) {
@@ -273,10 +277,12 @@ class DashboardPageState extends State<DashboardPage> {
                           initialCountryCode: 'UG',
                           onChanged: (phone) {
                             _selectedPhoneNumber = phone.completeNumber;
+                            debugPrint('IntlPhoneField onChanged: ${phone.completeNumber}');
                           },
                           onSaved: (phone) {
                             if (phone != null) {
                               _selectedPhoneNumber = phone.completeNumber;
+                              debugPrint('IntlPhoneField onSaved: ${phone.completeNumber}');
                             }
                           },
                           validator: (phone) {
