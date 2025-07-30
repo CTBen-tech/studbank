@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:studbank/services/momo_service.dart';
 import '../services/auth_service.dart';
+import 'dart:async'; // Import for Timer
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -19,7 +20,10 @@ class DashboardPageState extends State<DashboardPage> {
   bool _isLoading = false;
   String? _errorMessage;
   final User? user = FirebaseAuth.instance.currentUser;
-  String _selectedPhoneNumber = ''; // This will hold the complete number from IntlPhoneField (e.g., +256XXXXXXXXX)
+  String _selectedPhoneNumber = ''; // Holds the complete number from IntlPhoneField
+
+  // Map to hold pending transactions: {externalId: Timer}
+  final Map<String, Timer> _pendingTransactions = {};
 
   @override
   void initState() {
@@ -32,6 +36,7 @@ class DashboardPageState extends State<DashboardPage> {
           _errorMessage = 'Failed to load user data. Please try logging out and back in.';
         });
       });
+      _loadAndMonitorPendingTransactions(); // Load existing pending transactions
     } else {
       if (!mounted) return;
       setState(() {
@@ -44,13 +49,150 @@ class DashboardPageState extends State<DashboardPage> {
   void dispose() {
     _amountController.dispose();
     _phoneController.dispose();
+    for (var timer in _pendingTransactions.values) {
+      timer.cancel();
+    } // Cancel all active timers
     super.dispose();
   }
 
+  // New method to load and monitor pending transactions from Firestore
+  void _loadAndMonitorPendingTransactions() {
+    if (user == null) return;
+
+    FirebaseFirestore.instance
+        .collection('users')
+        .doc(user!.uid)
+        .collection('transactions')
+        .where('status', isEqualTo: 'PENDING')
+        .get()
+        .then((snapshot) {
+      for (var doc in snapshot.docs) {
+        final externalId = doc.data()['externalId'] as String?;
+        if (externalId != null && !_pendingTransactions.containsKey(externalId)) {
+          _startPollingTransaction(externalId, doc.reference);
+        }
+      }
+    }).catchError((e) {
+      debugPrint('Error loading pending transactions: $e');
+    });
+  }
+
+
+  // New method to handle polling for transaction status
+  void _startPollingTransaction(String externalId, DocumentReference transactionDocRef) {
+    // Poll every 10 seconds for up to 2 minutes (12 attempts)
+    int attempts = 0;
+    const maxAttempts = 12; // 12 attempts * 10 seconds = 120 seconds (2 minutes)
+
+    final timer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        _pendingTransactions.remove(externalId);
+        return;
+      }
+
+      attempts++;
+      debugPrint('Polling status for $externalId (Attempt $attempts)');
+
+      try {
+        final statusResponse = await MomoService().getPaymentStatus(externalId);
+        final moMoStatus = statusResponse['status'] as String?;
+        final financialTransactionId = statusResponse['financialTransactionId'] as String?;
+
+        if (moMoStatus == 'SUCCESSFUL' || moMoStatus == 'FAILED') {
+          timer.cancel();
+          _pendingTransactions.remove(externalId);
+          await _handleFinalTransactionStatus(transactionDocRef, moMoStatus!, financialTransactionId);
+        } else if (attempts >= maxAttempts) {
+          timer.cancel();
+          _pendingTransactions.remove(externalId);
+          debugPrint('Max polling attempts reached for $externalId. Marking as UNKNOWN/FAILED.');
+          await _handleFinalTransactionStatus(transactionDocRef, 'FAILED_TIMEOUT', financialTransactionId);
+        }
+      } catch (e) {
+        debugPrint('Error during polling for $externalId: $e');
+        if (attempts >= maxAttempts) {
+          timer.cancel();
+          _pendingTransactions.remove(externalId);
+          await _handleFinalTransactionStatus(transactionDocRef, 'FAILED_POLLING_ERROR', null);
+        }
+      }
+    });
+
+    _pendingTransactions[externalId] = timer;
+  }
+
+  // New method to update Firestore based on final MoMo status
+  Future<void> _handleFinalTransactionStatus(
+      DocumentReference transactionDocRef, String status, String? financialTransactionId) async {
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final transactionSnapshot = await transaction.get(transactionDocRef);
+      if (!transactionSnapshot.exists) {
+        throw Exception('Transaction document not found during status update');
+      }
+
+      final transactionData = transactionSnapshot.data() as Map<String, dynamic>;
+      final transactionType = transactionData['type'];
+      final transactionAmount = transactionData['amount'];
+      final userId = transactionDocRef.parent.parent!.id; // Get the user ID from the transaction path
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(userId);
+
+      // Update the transaction status
+      final updateData = {
+        'status': status,
+        'finalTimestamp': FieldValue.serverTimestamp(),
+      };
+      if (financialTransactionId != null) {
+        updateData['financialTransactionId'] = financialTransactionId;
+      }
+      transaction.update(transactionDocRef, updateData);
+
+
+      // Only update balance if SUCCESSFUL and if it's a deposit/withdrawal
+      if (status == 'SUCCESSFUL') {
+        if (transactionType == 'deposit') {
+          transaction.update(userDocRef, {
+            'balance': FieldValue.increment(transactionAmount),
+          });
+          if (mounted) {
+            setState(() {
+              _errorMessage = 'Deposit of $transactionAmount EUR successful!'; // Indicate EUR
+            });
+          }
+        } else if (transactionType == 'withdrawal') {
+          // IMPORTANT: For withdrawal, you must verify the user has sufficient balance
+          // before initiating the MoMo transfer. The Firestore update below only occurs
+          // AFTER MoMo confirms success. It's best to check balance *before* MoMo call.
+          transaction.update(userDocRef, {
+            'balance': FieldValue.increment(-transactionAmount),
+          });
+          if (mounted) {
+            setState(() {
+              _errorMessage = 'Withdrawal of $transactionAmount EUR successful!'; // Indicate EUR
+            });
+          }
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _errorMessage = '${transactionType == 'deposit' ? 'Deposit' : 'Withdrawal'} failed/timed out: $status';
+          });
+        }
+      }
+    }).catchError((e) {
+      debugPrint('Error during Firestore transaction update: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to update transaction in database: $e';
+        });
+      }
+    });
+  }
+
+
   Future<void> _addFunds() async {
-    // Validate the form, which will trigger onSaved for IntlPhoneField
     if (!_formKey.currentState!.validate()) return;
-    _formKey.currentState!.save(); // Ensures _selectedPhoneNumber is updated from onSaved
+    _formKey.currentState!.save();
 
     if (user == null) {
       if (!mounted) return;
@@ -65,72 +207,86 @@ class DashboardPageState extends State<DashboardPage> {
       _errorMessage = null;
     });
 
-    try {
-      final amount = _amountController.text.trim();
+    final amount = _amountController.text.trim();
+    // MoMo Sandbox test numbers for success: 256772123456
+    // For failure: 256772123457
+    // For pending: 256772123458
+    // For too many requests: 256772123459
+    // Always use these for testing in sandbox.
 
+    // Generate a unique ID for this transaction
+    final externalId = '${user!.uid}_deposit_${DateTime.now().millisecondsSinceEpoch}';
+
+    try {
       debugPrint('Dashboard: Phone number being sent for Deposit: $_selectedPhoneNumber');
 
-      final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
+      // Store the transaction as PENDING immediately in Firestore
+      final transactionDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user!.uid)
+          .collection('transactions')
+          .doc(); // Let Firestore generate the ID
 
-      final success = await MomoService.requestToPay(
+      await transactionDocRef.set({
+        'type': 'deposit',
+        'amount': double.parse(amount),
+        'timestamp': FieldValue.serverTimestamp(),
+        'externalId': externalId,
+        'status': 'PENDING', // Initial status
+        'phoneNumber': _selectedPhoneNumber, // Store for auditing
+        'currency': 'EUR', // Store the currency used with MoMo
+      });
+
+
+      final moMoResponse = await MomoService().requestToPay(
         amount: amount,
-        // *** FIX APPLIED HERE: Changed currency from 'UGX' to 'EUR' ***
-        currency: 'EUR',
-        externalId: externalId,
-        payerMobile: _selectedPhoneNumber, // Use the complete number directly
+        currency: 'EUR', // Hardcode EUR for MoMo Sandbox
+       
+        payerMobile: _selectedPhoneNumber,
         payerMessage: 'Deposit to StudBank',
         payeeNote: 'Deposit for ${user!.email}',
       );
 
-      if (!mounted) return;
-      if (success) {
-        final userDoc = FirebaseFirestore.instance.collection('users').doc(user!.uid);
-        await FirebaseFirestore.instance.runTransaction((transaction) async {
-          final snapshot = await transaction.get(userDoc);
-          if (!snapshot.exists) throw Exception('User document not found');
-          transaction.update(userDoc, {
-            'balance': FieldValue.increment(double.parse(amount)),
-          });
-          transaction.set(
-            userDoc.collection('transactions').doc(),
-            {
-              'type': 'deposit',
-              'amount': double.parse(amount),
-              'timestamp': FieldValue.serverTimestamp(),
-              'externalId': externalId,
-              'status': 'SUCCESSFUL',
-            },
-          );
-        });
+      // If we get a 202 Accepted, start polling for status
+      if (moMoResponse['status'] == 'PENDING') {
+        if (!mounted) return;
         setState(() {
-          _errorMessage = 'Deposit successful!';
-          _amountController.clear();
-          _phoneController.clear();
-          _selectedPhoneNumber = ''; // Clear for next input
+          _errorMessage = 'Deposit request sent. Waiting for confirmation. (Ref: $externalId)';
         });
+        // Start polling for the status of this transaction
+        _startPollingTransaction(externalId, transactionDocRef);
       } else {
+        // This case should ideally not happen if the worker returns 202 and 'PENDING'
+        // for successful initiation, but good for robustness.
+        if (!mounted) return;
         setState(() {
-          _errorMessage = 'Deposit failed. Please verify your phone number and try again.';
+          _errorMessage = 'Deposit request received unexpected status: ${moMoResponse['status']}';
+          // Update transaction status to reflect immediate failure if response wasn't PENDING
+          transactionDocRef.update({'status': 'FAILED_INITIATION', 'finalTimestamp': FieldValue.serverTimestamp()});
         });
       }
     } catch (e) {
       debugPrint('Deposit error: $e');
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Error processing deposit. ${e.toString()}';
       });
+      // Consider updating transaction status to FAILED in Firestore if it was initially added
     } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _amountController.clear();
+          _phoneController.clear();
+          _selectedPhoneNumber = ''; // Clear for next input
         });
       }
     }
   }
 
   Future<void> _withdrawFunds() async {
-    // Validate the form, which will trigger onSaved for IntlPhoneField
     if (!_formKey.currentState!.validate()) return;
-    _formKey.currentState!.save(); // Ensures _selectedPhoneNumber is updated from onSaved
+    _formKey.currentState!.save();
 
     if (user == null) {
       if (!mounted) return;
@@ -145,56 +301,67 @@ class DashboardPageState extends State<DashboardPage> {
       _errorMessage = null;
     });
 
-    try {
-      final amount = _amountController.text.trim();
+    final amount = _amountController.text.trim();
+    final currentBalance = (await FirebaseFirestore.instance.collection('users').doc(user!.uid).get()).data()?['balance']?.toDouble() ?? 0.0;
 
+    // IMPORTANT: Check balance *before* initiating withdrawal
+    if (double.parse(amount) > currentBalance) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Insufficient balance for withdrawal.';
+        _isLoading = false;
+      });
+      return;
+    }
+
+    final externalId = '${user!.uid}_withdrawal_${DateTime.now().millisecondsSinceEpoch}';
+
+    try {
       debugPrint('Dashboard: Phone number being sent for Withdrawal: $_selectedPhoneNumber');
 
-      final externalId = '${user!.uid}_${DateTime.now().millisecondsSinceEpoch}';
+      // Store the transaction as PENDING immediately in Firestore
+      final transactionDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user!.uid)
+          .collection('transactions')
+          .doc();
 
-      final success = await MomoService.transfer(
+      await transactionDocRef.set({
+        'type': 'withdrawal',
+        'amount': double.parse(amount),
+        'timestamp': FieldValue.serverTimestamp(),
+        'externalId': externalId,
+        'status': 'PENDING', // Initial status
+        'phoneNumber': _selectedPhoneNumber, // Store for auditing
+        'currency': 'EUR', // Store the currency used with MoMo
+      });
+
+      final moMoResponse = await MomoService().transfer( // Use the transfer method
         amount: amount,
-        // *** FIX APPLIED HERE: Changed currency from 'UGX' to 'EUR' ***
-        currency: 'EUR',
-        externalId: externalId,
-        payeeMobile: _selectedPhoneNumber, // Use the complete number directly
+        currency: 'EUR', // Hardcode EUR for MoMo Sandbox
+       
+        payeeMobile: _selectedPhoneNumber,
         payerMessage: 'Withdrawal from StudBank',
         payeeNote: 'Withdrawal for ${user!.email}',
       );
 
-      if (!mounted) return;
-      if (success) {
-        final userDoc = FirebaseFirestore.instance.collection('users').doc(user!.uid);
-        await FirebaseFirestore.instance.runTransaction((transaction) async {
-          final snapshot = await transaction.get(userDoc);
-          if (!snapshot.exists) throw Exception('User document not found');
-          transaction.update(userDoc, {
-            'balance': FieldValue.increment(-double.parse(amount)),
-          });
-          transaction.set(
-            userDoc.collection('transactions').doc(),
-            {
-              'type': 'withdrawal',
-              'amount': double.parse(amount),
-              'timestamp': FieldValue.serverTimestamp(),
-              'externalId': externalId,
-              'status': 'SUCCESSFUL',
-            },
-          );
-        });
+      if (moMoResponse['status'] == 'PENDING') {
+        if (!mounted) return;
         setState(() {
-          _errorMessage = 'Withdrawal successful!';
-          _amountController.clear();
-          _phoneController.clear();
-          _selectedPhoneNumber = ''; // Clear for next input
+          _errorMessage = 'Withdrawal request sent. Waiting for confirmation. (Ref: $externalId)';
         });
+        _startPollingTransaction(externalId, transactionDocRef);
       } else {
+        if (!mounted) return;
         setState(() {
-          _errorMessage = 'Withdrawal failed. Please verify your phone number and try again.';
+          _errorMessage = 'Withdrawal request received unexpected status: ${moMoResponse['status']}';
+          transactionDocRef.update({'status': 'FAILED_INITIATION', 'finalTimestamp': FieldValue.serverTimestamp()});
         });
       }
+
     } catch (e) {
       debugPrint('Withdrawal error: $e');
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Error processing withdrawal. ${e.toString()}';
       });
@@ -202,6 +369,9 @@ class DashboardPageState extends State<DashboardPage> {
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _amountController.clear();
+          _phoneController.clear();
+          _selectedPhoneNumber = '';
         });
       }
     }
@@ -240,8 +410,6 @@ class DashboardPageState extends State<DashboardPage> {
                 }
 
                 final data = snapshot.data!.data() as Map<String, dynamic>;
-                // You might still display UGX in the UI balance for local context,
-                // but the backend transaction is now EUR in sandbox.
                 final balance = data['balance']?.toDouble() ?? 0.0;
                 final name = data['name'] ?? 'User';
 
@@ -254,13 +422,12 @@ class DashboardPageState extends State<DashboardPage> {
                       children: [
                         Text('Welcome, $name', style: Theme.of(context).textTheme.headlineSmall),
                         const SizedBox(height: 8),
-                        Text('Balance: UGX ${balance.toStringAsFixed(2)}', // Display as UGX if that's the local currency
+                        Text('Balance: UGX ${balance.toStringAsFixed(2)}', // Display as UGX, but remember MoMo is EUR in sandbox
                             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _amountController,
                           keyboardType: TextInputType.number,
-                          // You might want to update this label too if you want to reflect EUR in the UI
                           decoration: const InputDecoration(labelText: 'Amount (EUR in Sandbox)'),
                           validator: (value) {
                             final amount = double.tryParse(value ?? '');
